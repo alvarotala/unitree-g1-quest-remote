@@ -1,88 +1,84 @@
-# Diagnóstico de solo lectura — Unitree G1 EDU+ 29 DOF
+# Unitree G1 Quest Remote
 
-Este repositorio comienza con una prueba segura para verificar la comunicación
-DDS con el G1 antes de implementar el control remoto desde Meta Quest.
+Control remoto experimental de un Unitree G1 EDU+ de 29 DOF desde Meta Quest.
 
-`g1_readonly_diagnostic.py` **solo se suscribe** al topic `rt/lowstate`. No crea
-publishers, no envía `LowCmd` y no cambia el modo de movimiento.
+La primera fase verifica telemetría real sin enviar órdenes. La arquitectura se
+actualizó usando como referencia el entorno ya probado de `unitree-g1-claw`:
+PC2 aarch64, SDK2 C++ existente y compilación local al proyecto.
 
-## Requisitos
+## Seguridad actual
 
-- Una computadora con Ubuntu conectada por Ethernet al G1.
-- Python 3.8 o posterior.
-- La versión actual de
-  [`unitree_sdk2_python`](https://github.com/unitreerobotics/unitree_sdk2_python),
-  instalada desde el repositorio oficial siguiendo su README.
+El ejecutable principal solamente crea un `ChannelSubscriber` de
+`rt/lowstate`. No incluye publishers, mensajes de comando ni clientes que
+cambien el modo del robot.
 
-Ejemplo de instalación del SDK:
+En PC2 no hay que ejecutar `apt install`, `apt upgrade`, `pip install` ni
+`make install`. Se reutilizan SDK2 y CycloneDDS ya instalados por Unitree.
 
-```bash
-git clone https://github.com/unitreerobotics/unitree_sdk2_python.git
-cd unitree_sdk2_python
-python3 -m pip install -e .
-```
+## Copiar a PC2
 
-Si la instalación informa que no encuentra CycloneDDS, sigue las instrucciones
-de instalación de CycloneDDS incluidas en el README oficial del SDK.
-
-## Uso
-
-Primero identifica el nombre de la interfaz Ethernet:
+Desde la Mac:
 
 ```bash
-python3 g1_readonly_diagnostic.py --list-interfaces
+rsync -av \
+  --exclude '.git/' --exclude 'build/' \
+  --exclude '__pycache__/' --exclude '.DS_Store' \
+  "/Users/alvaro/Documents/unitree-g1-experiments/unitree-g1-quest-remote/" \
+  unitree@192.168.123.164:~/unitree-g1-quest-remote/
 ```
 
-Luego ejecuta una captura de ocho segundos, sustituyendo `eth0` por la interfaz
-correcta:
+La dirección corresponde a la PC2 ya probada; confirmar si cambia la topología.
+
+## Compilar en PC2
 
 ```bash
-python3 g1_readonly_diagnostic.py --interface eth0
+ssh unitree@192.168.123.164
+cd ~/unitree-g1-quest-remote
+chmod +x production/build.sh
+./production/build.sh
 ```
 
-Para mostrar solamente las seis articulaciones que distinguen al G1 de 29 DOF:
+El script usa `/home/unitree/unitree_sdk2-main`, compila y ejecuta pruebas. No
+instala ni modifica nada fuera del proyecto.
+
+## Ejecutar el diagnóstico
+
+Identificar primero la interfaz con `ip -br -4 addr`. En la unidad de referencia
+es `eth0`. Con el robot encendido y apoyado de forma segura:
 
 ```bash
-python3 g1_readonly_diagnostic.py --interface eth0 --joints optional
+./build/cpp_lowstate_diagnostic/g1_lowstate_diagnostic \
+  --interface eth0 --duration 8 --joints optional
 ```
 
-Para capturar hasta pulsar `Ctrl+C`:
+Esto muestra cintura roll/pitch y muñecas pitch/yaw, las seis articulaciones
+que distinguen los 29 DOF. Para todos los motores usar `--joints all`.
+
+Si no llega el topic principal, probar:
 
 ```bash
-python3 g1_readonly_diagnostic.py --interface eth0 --duration 0
+./build/cpp_lowstate_diagnostic/g1_lowstate_diagnostic \
+  --interface eth0 --topic rt/lf/lowstate --joints optional
 ```
 
-El programa muestra:
-
-- frecuencia aproximada de recepción;
-- `mode_pr`, `mode_machine` y `tick`;
-- orientación, giróscopo, acelerómetro y temperatura de la IMU;
-- posición, velocidad, torque estimado, temperatura y modo de los 29 motores;
-- evidencia de telemetría para cintura roll/pitch y muñecas pitch/yaw.
-
-El mensaje DDS reserva 35 slots de motor para la familia `unitree_hg`. Por ello,
-tener una lista de 35 elementos no confirma por sí solo la variante del robot:
-el diagnóstico comprueba si los índices opcionales entregan señal real.
-
-## Si no llegan mensajes
-
-1. Confirma que el G1 esté encendido.
-2. Revisa el cable y que la interfaz figure como `up`.
-3. Confirma que elegiste la interfaz Ethernet conectada al robot, no Wi-Fi ni
-   `lo`.
-4. Revisa la configuración IP recomendada por Unitree.
-5. Ejecuta nuevamente con un tiempo de espera mayor:
+## Pruebas locales sin SDK ni robot
 
 ```bash
-python3 g1_readonly_diagnostic.py --interface eth0 --timeout 15
+cmake -S cpp_lowstate_diagnostic -B build/local-tests \
+  -DBUILD_UNITREE_DIAGNOSTIC=OFF
+cmake --build build/local-tests
+ctest --test-dir build/local-tests --output-on-failure
 ```
 
-Esta prueba no requiere desactivar `ai_sport` ni entrar en modo debug.
+Las pruebas validan el layout de 29 DOF, placeholders, valores no finitos y la
+ausencia de capacidades de publicación en el ejecutable.
 
-## Pruebas locales
+## Python anterior
 
-Las pruebas usan mensajes simulados y no necesitan un robot ni el SDK:
+`g1_readonly_diagnostic.py` se conserva como alternativa para una computadora
+que ya tenga `unitree_sdk2_python`; no es la ruta recomendada para PC2.
 
-```bash
-python3 -m unittest discover -s tests -v
-```
+## Próxima fase
+
+Después de una captura correcta construiremos el receptor de poses de Quest
+completamente desacoplado del movimiento. Ver [`docs/ROADMAP.md`](docs/ROADMAP.md).
