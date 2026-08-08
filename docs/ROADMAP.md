@@ -6,9 +6,14 @@
 - Manos simples pasivas.
 - PC2 aarch64 con SDK2 C++ y CycloneDDS ya instalados por Unitree.
 - SDK verificado en `/home/unitree/unitree_sdk2-main`.
+- Arquitectura canónica: Quest → router Wi-Fi portátil → PC2 → DDS → G1.
+- Gateway, retargeting y supervisor de seguridad ejecutados en PC2.
 
 Las manos no tienen actuadores. El primer alcance de Quest será el seguimiento
 de los dos brazos de 7 DOF; cintura y piernas permanecen bajo control nativo.
+La red Quest estará separada de la red DDS interna según
+[`ARCHITECTURE.md`](ARCHITECTURE.md). No se incorporará una computadora externa
+al camino de control.
 
 ## Fase 1 — telemetría DDS de solo lectura
 
@@ -18,15 +23,18 @@ finitos. No contiene publishers ni clientes de cambio de modo.
 
 ## Fase 2 — transporte Quest sin movimiento
 
-Crear un receptor que solo registre poses del visor y controladores, botones,
-secuencia, timestamps, latencia, jitter y pérdida. La pérdida del stream debe
-producir `DISARMED`; todavía no habrá publicación DDS hacia el robot.
+Conectar Quest al router Wi-Fi portátil y crear en PC2 un receptor HTTPS/WSS
+que solo registre poses del visor y controladores, botones, secuencia,
+timestamps, latencia, jitter y pérdida. La pérdida del stream debe producir
+`DISARMED`; todavía no habrá publicación DDS hacia el robot. Verificar además
+que el servicio Quest no exponga ni reenvíe CycloneDDS por la red Wi-Fi.
 
 ## Fase 3 — retargeting y simulación
 
 Convertir poses a objetivos articulares y validar en MuJoCo: coordenadas,
 calibración neutral, límites, velocidad, aceleración, filtrado, singularidades,
-watchdog y dead-man switch.
+watchdog y dead-man switch. El retargeting definitivo se ejecutará en PC2 y
+recibirá intención cartesiana; Quest no enviará comandos de motor.
 
 ## Fase 4 — brazos reales mediante `rt/arm_sdk`
 
@@ -34,4 +42,6 @@ Se añadirá un ejecutable separado con activación explícita, mantener-presion
 interpolación desde postura actual, límites conservadores, timeout de red,
 parada local y prueba inicial con el robot soportado y sin caminar. El
 diagnóstico seguirá siendo un binario separado e incapaz de mover el robot.
+Solo PC2 podrá publicar `rt/arm_sdk`; ante pérdida de Quest o del router, el
+supervisor local forzará una salida controlada a `DISARMED`.
 

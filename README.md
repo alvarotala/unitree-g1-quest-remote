@@ -2,9 +2,17 @@
 
 Control remoto experimental de un Unitree G1 EDU+ de 29 DOF desde Meta Quest.
 
-La primera fase verifica telemetría real sin enviar órdenes. La arquitectura se
-actualizó usando como referencia el entorno ya probado de `unitree-g1-claw`:
-PC2 aarch64, SDK2 C++ existente y compilación local al proyecto.
+La primera fase verifica telemetría real sin enviar órdenes. La arquitectura
+operativa adoptada para todas las fases es:
+
+```text
+Meta Quest → router Wi-Fi portátil → PC2 → unitree_sdk2/CycloneDDS → G1
+```
+
+El gateway y toda la seguridad se ejecutan en PC2 aarch64. No se requiere una
+computadora externa durante la operación. La red Quest permanece separada de
+la red DDS interna del robot. Ver
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Seguridad actual
 
@@ -15,9 +23,9 @@ cambien el modo del robot.
 En PC2 no hay que ejecutar `apt install`, `apt upgrade`, `pip install` ni
 `make install`. Se reutilizan SDK2 y CycloneDDS ya instalados por Unitree.
 
-## Copiar a PC2
+## Copiar a PC2 desde la estación de desarrollo
 
-Desde la Mac:
+Ejemplo desde la estación donde está este repositorio:
 
 ```bash
 rsync -av \
@@ -27,7 +35,9 @@ rsync -av \
   unitree@192.168.123.164:~/unitree-g1-quest-remote/
 ```
 
-La dirección corresponde a la PC2 ya probada; confirmar si cambia la topología.
+La dirección corresponde a la PC2 ya probada en la red interna. Esta conexión
+se usa para despliegue y diagnóstico; la estación de desarrollo no forma parte
+de la arquitectura operativa.
 
 ## Compilar en PC2
 
@@ -81,4 +91,6 @@ que ya tenga `unitree_sdk2_python`; no es la ruta recomendada para PC2.
 ## Próxima fase
 
 Después de una captura correcta construiremos el receptor de poses de Quest
-completamente desacoplado del movimiento. Ver [`docs/ROADMAP.md`](docs/ROADMAP.md).
+en PC2, completamente desacoplado del movimiento. Ver
+[`docs/ROADMAP.md`](docs/ROADMAP.md) y la
+[`arquitectura canónica`](docs/ARCHITECTURE.md).
