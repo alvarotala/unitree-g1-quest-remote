@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07110e">
+  <title>G1 Quest Remote</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main>
+    <header>
+      <div class="eyebrow">UNITREE G1 · QUEST LINK</div>
+      <div class="header-row">
+        <h1>Pose transport</h1>
+        <span class="pill safe">READ ONLY</span>
+      </div>
+      <p>Captura local de tracking. Esta fase no puede enviar comandos al robot.</p>
+    </header>
+
+    <section class="status-card">
+      <div class="signal"><span id="signalDot"></span></div>
+      <div>
+        <span class="label">ESTADO</span>
+        <strong id="status">Comprobando Quest…</strong>
+        <small id="detail">Conectando con el servidor local</small>
+      </div>
+      <button id="enterVr" disabled>Entrar en VR</button>
+    </section>
+
+    <section class="metrics">
+      <article><span class="label">MUESTRAS</span><strong id="sampleCount">0</strong><small>capturadas</small></article>
+      <article><span class="label">FRECUENCIA</span><strong><span id="rate">0</span> Hz</strong><small>tracking</small></article>
+      <article><span class="label">ENVÍO</span><strong id="uploadState">—</strong><small id="uploadDetail">sin sesión</small></article>
+    </section>
+
+    <section class="devices">
+      <article class="device" id="headCard">
+        <div class="device-title"><span>HMD</span><b id="headValid">ESPERA</b></div>
+        <pre id="headPose">posición  —
+rotación  —</pre>
+      </article>
+      <article class="device" id="leftCard">
+        <div class="device-title"><span>CONTROL IZQ.</span><b id="leftValid">ESPERA</b></div>
+        <pre id="leftPose">posición  —
+rotación  —</pre>
+      </article>
+      <article class="device" id="rightCard">
+        <div class="device-title"><span>CONTROL DER.</span><b id="rightValid">ESPERA</b></div>
+        <pre id="rightPose">posición  —
+rotación  —</pre>
+      </article>
+    </section>
+
+    <footer><span id="sessionLabel">Sin sesión XR</span><span>HTTPS · LAN local</span></footer>
+  </main>
+  <canvas id="xrCanvas"></canvas>
+  <script src="app.js" defer></script>
+</body>
+</html>

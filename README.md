@@ -94,3 +94,15 @@ Después de una captura correcta construiremos el receptor de poses de Quest
 en PC2, completamente desacoplado del movimiento. Ver
 [`docs/ROADMAP.md`](docs/ROADMAP.md) y la
 [`arquitectura canónica`](docs/ARCHITECTURE.md).
+
+## App WebXR en la Mac (desarrollo)
+
+Para probar el transporte directamente desde un Quest conectado al mismo Wi-Fi:
+
+```bash
+python3 web/server.py
+```
+
+El comando muestra una URL HTTPS con la IP LAN. Esta app es de solo lectura:
+captura tracking y guarda telemetría en `logs/`, pero no contiene SDK2, DDS ni
+endpoints de movimiento. Ver [`web/README.md`](web/README.md).
