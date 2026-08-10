@@ -30,7 +30,7 @@ Ejemplo desde la estación donde está este repositorio:
 
 ```bash
 rsync -av \
-  --exclude '.git/' --exclude 'build/' \
+  --exclude '.git/' --exclude '.cert/' --exclude 'build/' \
   --exclude '__pycache__/' --exclude '.DS_Store' \
   "/Users/alvaro/Documents/unitree-g1-experiments/unitree-g1-quest-remote/" \
   unitree@192.168.123.164:~/unitree-g1-quest-remote/
@@ -147,14 +147,20 @@ en PC2, completamente desacoplado del movimiento. Ver
 [`docs/ROADMAP.md`](docs/ROADMAP.md) y la
 [`arquitectura canónica`](docs/ARCHITECTURE.md).
 
-## App WebXR en la Mac (desarrollo)
+## Fase 2: transporte WebXR en PC2
 
-Para probar el transporte directamente desde un Quest conectado al mismo Wi-Fi:
+Con PC2 y Quest conectados a una red dedicada separada de `eth0`, iniciar el
+receptor con la dirección de PC2 en esa red:
 
 ```bash
-python3 web/server.py
+python3 web/server.py --ip IP_PC2_EN_LA_RED_QUEST
 ```
 
-El comando muestra una URL HTTPS con la IP LAN. Esta app es de solo lectura:
-captura tracking y guarda telemetría en `logs/`, pero no contiene SDK2, DDS ni
-endpoints de movimiento. Ver [`web/README.md`](web/README.md).
+El comando muestra una URL HTTPS para Quest. Esta app captura tracking y guarda
+telemetría en `logs/`, pero no contiene SDK2, DDS ni endpoints de movimiento.
+El estado permanece siempre `DISARMED`. Seguir el
+[`plan de pruebas de Fase 2`](docs/PHASE2_TEST_PLAN.md) y consultar detalles en
+[`web/README.md`](web/README.md).
+
+Para desarrollo también puede ejecutarse en una Mac, pero la validación de la
+arquitectura final debe hacerse directamente en PC2.

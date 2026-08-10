@@ -1,7 +1,8 @@
 const ui = Object.fromEntries([
   "signalDot","status","detail","enterVr","sampleCount","rate","uploadState",
   "uploadDetail","headPose","headValid","headCard","leftPose","leftValid",
-  "leftCard","rightPose","rightValid","rightCard","sessionLabel"
+  "leftCard","rightPose","rightValid","rightCard","sessionLabel",
+  "rtt","jitter","loss","safetyState"
 ].map(id => [id, document.getElementById(id)]));
 
 let xrSession = null;
@@ -12,6 +13,12 @@ let sessionId = null;
 let pending = [];
 let sending = false;
 let rateWindow = [];
+let intervalWindow = [];
+let lastFrameTime = null;
+let lastRttMs = null;
+let lastClockOffsetMs = null;
+let lastUploadOkAt = null;
+let localDrops = 0;
 
 const rounded = values => Array.from(values, n => Number(n.toFixed(4)));
 const poseData = pose => pose ? {
@@ -228,44 +235,75 @@ async function flush() {
   if (sending || pending.length === 0) return;
   sending = true;
   const samples = pending.splice(0,60);
+  const batchSessionId = sessionId;
+  const sentAt = performance.now();
+  const sentEpochMs = Date.now();
   try {
-    const response = await fetch("/api/samples", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({protocolVersion:1,sessionId,samples})});
+    const response = await fetch("/api/samples", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      protocolVersion:1,sessionId:batchSessionId,clientSentEpochMs:sentEpochMs,samples,
+      clientMetrics:{lastRttMs,clockOffsetMs:lastClockOffsetMs,sampleJitterMs:sampleJitter(),queueDrops:localDrops,capturedRateHz:rateWindow.length}
+    })});
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    ui.uploadState.textContent="OK"; ui.uploadDetail.textContent=`${samples.length} últimas`;
+    const result=await response.json();
+    const receivedEpochMs=Date.now();
+    lastRttMs=performance.now()-sentAt;
+    lastClockOffsetMs=((result.serverReceivedTimeMs-sentEpochMs)+(result.serverSentTimeMs-receivedEpochMs))/2;
+    if(sessionId===batchSessionId){
+      lastUploadOkAt=performance.now();
+      ui.rtt.textContent=lastRttMs.toFixed(1); ui.loss.textContent=Number(result.lossPercent||0).toFixed(2);
+      ui.safetyState.textContent=result.safetyState||"DISARMED";
+      ui.uploadState.textContent="OK"; ui.uploadDetail.textContent=`${samples.length} muestras · seq ${samples[samples.length-1].sequence}`;
+      if(xrSession){ui.status.textContent="Capturando tracking";ui.detail.textContent="Entorno activo · ningún comando de robot";ui.signalDot.style.background="var(--green)";}
+    }
   } catch (error) {
-    pending.unshift(...samples); pending=pending.slice(-120);
-    ui.uploadState.textContent="ERROR"; ui.uploadDetail.textContent=error.message;
+    if(sessionId===batchSessionId){
+      pending.unshift(...samples);
+      if(pending.length>120){localDrops+=pending.length-120;pending=pending.slice(-120);}
+      ui.uploadState.textContent="ERROR"; ui.uploadDetail.textContent=error.message;
+    }
   } finally { sending=false; }
+}
+
+function sampleJitter() {
+  if(intervalWindow.length<2) return 0;
+  const mean=intervalWindow.reduce((a,b)=>a+b,0)/intervalWindow.length;
+  return Math.sqrt(intervalWindow.reduce((sum,value)=>sum+(value-mean)**2,0)/intervalWindow.length);
 }
 
 function onXRFrame(time,frame) {
   xrSession.requestAnimationFrame(onXRFrame);
   const viewer=frame.getViewerPose(referenceSpace);
-  const head=viewer ? poseData(viewer.views[0]) : null;
+  const head=viewer ? poseData(viewer) : null;
   const leftInput=[...xrSession.inputSources].find(x=>x.handedness==="left");
   const rightInput=[...xrSession.inputSources].find(x=>x.handedness==="right");
   const left=controllerData(leftInput,frame), right=controllerData(rightInput,frame);
   pending.push({sequence:sequence++,clientTime:performance.now(),head,left,right});
-  if (pending.length>120) pending.shift();
+  if (pending.length>120) { pending.shift(); localDrops++; }
   showPose("head",head); showPose("left",left?.grip||left?.ray||null); showPose("right",right?.grip||right?.ray||null);
   ui.sampleCount.textContent=sequence.toLocaleString();
   rateWindow.push(time); while(rateWindow.length&&rateWindow[0]<time-1000) rateWindow.shift();
   ui.rate.textContent=rateWindow.length;
+  if(lastFrameTime!==null){intervalWindow.push(time-lastFrameTime);if(intervalWindow.length>120)intervalWindow.shift();}
+  lastFrameTime=time; ui.jitter.textContent=sampleJitter().toFixed(2);
   if (viewer) renderer.render(frame,viewer,leftInput,rightInput);
 }
 
 async function enterVR() {
   try {
-    sessionId=`${Date.now().toString(36)}-${crypto.randomUUID().slice(0,8)}`; sequence=0; pending=[];
+    sessionId=`${Date.now().toString(36)}-${crypto.randomUUID().slice(0,8)}`;
+    sequence=0; pending=[]; rateWindow=[]; intervalWindow=[]; lastFrameTime=null;
+    lastRttMs=null; lastClockOffsetMs=null; localDrops=0;
     xrSession=await navigator.xr.requestSession("immersive-vr",{requiredFeatures:["local-floor"]});
     const canvas=document.getElementById("xrCanvas"), gl=canvas.getContext("webgl",{xrCompatible:true,alpha:false,antialias:true});
     await gl.makeXRCompatible();
     xrSession.updateRenderState({baseLayer:new XRWebGLLayer(xrSession,gl),depthNear:.05,depthFar:30});
     referenceSpace=await xrSession.requestReferenceSpace("local-floor");
     renderer=new XRScene(gl);
+    lastUploadOkAt=performance.now();
     xrSession.addEventListener("end",endSession);
     ui.status.textContent="Capturando tracking"; ui.detail.textContent="Entorno activo · ningún comando de robot";
     ui.signalDot.style.background="var(--green)"; ui.sessionLabel.textContent=`Sesión ${sessionId}`;
+    ui.safetyState.textContent="DISARMED";
     ui.enterVr.textContent="Salir de VR"; ui.enterVr.onclick=()=>xrSession.end();
     xrSession.requestAnimationFrame(onXRFrame);
   } catch(error) { ui.status.textContent="No se pudo iniciar VR"; ui.detail.textContent=error.message; }
@@ -273,7 +311,8 @@ async function enterVR() {
 
 function endSession() {
   xrSession=null; referenceSpace=null; renderer=null; flush();
-  ui.status.textContent="Quest listo"; ui.detail.textContent="La sesión terminó de forma segura";
+  ui.status.textContent="DISARMED"; ui.detail.textContent="La sesión terminó de forma segura";
+  ui.signalDot.style.background="var(--amber)"; ui.safetyState.textContent="DISARMED";
   ui.enterVr.textContent="Entrar en VR"; ui.enterVr.onclick=enterVR;
 }
 
@@ -288,4 +327,13 @@ async function boot() {
 }
 
 setInterval(flush,100);
+setInterval(()=>{
+  if(!xrSession||lastUploadOkAt===null)return;
+  const age=performance.now()-lastUploadOkAt;
+  if(age>750){
+    ui.status.textContent="DISARMED · stream vencido";
+    ui.detail.textContent=`Sin confirmación del receptor hace ${Math.round(age)} ms`;
+    ui.signalDot.style.background="var(--amber)"; ui.safetyState.textContent="DISARMED";
+  }
+},250);
 boot();

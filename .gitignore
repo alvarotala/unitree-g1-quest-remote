@@ -1,7 +1,8 @@
 .DS_Store
+.cert/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 build/
 dist/
-
+logs/*.ndjson

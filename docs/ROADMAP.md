@@ -19,17 +19,19 @@ al camino de control.
 
 ## Fase 1 — telemetría DDS de solo lectura
 
-Estado actual. `g1_lowstate_diagnostic` escucha `rt/lowstate` y verifica tasa
-DDS, IMU, 29 estados articulares, articulaciones opcionales y valores no
-finitos. No contiene publishers ni clientes de cambio de modo.
+Completada. `g1_lowstate_diagnostic` confirmó telemetría G1 de 29 DOF a
+aproximadamente 1042 Hz, seis articulaciones opcionales activas, valores finitos
+y cero errores en los motores inspeccionados. No contiene publishers ni
+clientes de cambio de modo.
 
 ## Fase 2 — transporte Quest sin movimiento
 
-Conectar Quest al router Wi-Fi portátil y crear en PC2 un receptor HTTPS/WSS
-que solo registre poses del visor y controladores, botones, secuencia,
-timestamps, latencia, jitter y pérdida. La pérdida del stream debe producir
-`DISARMED`; todavía no habrá publicación DDS hacia el robot. Verificar además
-que el servicio Quest no exponga ni reenvíe CycloneDDS por la red Wi-Fi.
+En validación. El receptor HTTPS registra poses del visor y controladores,
+botones, secuencia, timestamps, RTT, jitter y pérdida; impone una sola sesión,
+escucha únicamente en la IP Quest indicada y permanece siempre `DISARMED`. Se
+deben completar la captura nominal y las pruebas de pérdida/red descritas en
+[`PHASE2_TEST_PLAN.md`](PHASE2_TEST_PLAN.md). Todavía no hay publicación DDS
+hacia el robot.
 
 ## Fase 3 — retargeting y simulación
 
