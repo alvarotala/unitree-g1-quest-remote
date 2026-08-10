@@ -5,7 +5,9 @@
 - Unitree G1 EDU+ de 29 DOF, firmware `v1.5.3`.
 - Manos simples pasivas.
 - PC2 aarch64 con SDK2 C++ y CycloneDDS ya instalados por Unitree.
-- SDK verificado en `/home/unitree/unitree_sdk2-main`.
+- SDK2 oficial con soporte G1/HG verificado en
+  `/home/unitree/unitree_sdk2-g1`; se transfirió a PC2 sin instalarlo en el
+  sistema. El SDK preinstalado `unitree_sdk2-main` solo contiene IDL de Go2.
 - Arquitectura canónica: Quest → router Wi-Fi portátil → PC2 → DDS → G1.
 - Gateway, retargeting y supervisor de seguridad ejecutados en PC2.
 
@@ -44,4 +46,3 @@ parada local y prueba inicial con el robot soportado y sin caminar. El
 diagnóstico seguirá siendo un binario separado e incapaz de mover el robot.
 Solo PC2 podrá publicar `rt/arm_sdk`; ante pérdida de Quest o del router, el
 supervisor local forzará una salida controlada a `DISARMED`.
-

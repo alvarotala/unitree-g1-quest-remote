@@ -23,10 +23,14 @@ if(BUILD_LOGIC_TESTS)
 endif()
 
 if(BUILD_UNITREE_DIAGNOSTIC)
-  set(UNITREE_SDK_ROOT "/home/unitree/unitree_sdk2-main"
+  set(UNITREE_SDK_ROOT "/home/unitree/unitree_sdk2-g1"
       CACHE PATH "Existing Unitree SDK2 source directory on PC2")
   if(NOT EXISTS "${UNITREE_SDK_ROOT}/include/unitree/robot/channel/channel_subscriber.hpp")
     message(FATAL_ERROR "Invalid UNITREE_SDK_ROOT: ${UNITREE_SDK_ROOT}")
+  endif()
+  if(NOT EXISTS "${UNITREE_SDK_ROOT}/include/unitree/idl/hg/LowState_.hpp")
+    message(FATAL_ERROR
+      "UNITREE_SDK_ROOT does not contain G1/HG IDL headers: ${UNITREE_SDK_ROOT}")
   endif()
   set(UNITREE_SDK_LIBRARY
       "${UNITREE_SDK_ROOT}/lib/${CMAKE_SYSTEM_PROCESSOR}/libunitree_sdk2.a")
@@ -53,4 +57,3 @@ if(BUILD_UNITREE_DIAGNOSTIC)
     ${DDSC_LIBRARY} ${DDSCXX_LIBRARY} rt Threads::Threads)
   target_compile_options(g1_lowstate_diagnostic PRIVATE -Wall -Wextra -Wpedantic)
 endif()
-
