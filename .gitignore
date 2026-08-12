@@ -8,3 +8,5 @@ build/
 dist/
 logs/*.ndjson
 /.venv-phase3
+/logs
+/logs

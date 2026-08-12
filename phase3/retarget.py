@@ -124,9 +124,29 @@ class Calibration:
 
 
 class G1Kinematics:
-    def __init__(self, model_path):
+    def __init__(self, model_path, collision_margin=0.025):
         self.model = mujoco.MjModel.from_xml_path(str(model_path))
         self.data = mujoco.MjData(self.model)
+        self.collision_margin = float(collision_margin)
+        self.arm_bodies = {"left": set(), "right": set()}
+        self.distal_arm_bodies = {"left": set(), "right": set()}
+        self.torso_bodies = set()
+        for body in range(self.model.nbody):
+            name = mujoco.mj_id2name(self.model, mujoco.mjtObj.mjOBJ_BODY, body) or ""
+            if name in {"pelvis", "waist_yaw_link", "waist_roll_link", "torso_link",
+                        "head_link"}:
+                self.torso_bodies.add(body)
+            for side in ("left", "right"):
+                if name.startswith(side + "_") and any(
+                        part in name for part in ("shoulder", "elbow", "wrist")):
+                    self.arm_bodies[side].add(body)
+                    if "elbow" in name or "wrist" in name:
+                        self.distal_arm_bodies[side].add(body)
+        protected_bodies = self.torso_bodies | set().union(*self.arm_bodies.values())
+        for geom in range(self.model.ngeom):
+            if self.model.geom_bodyid[geom] in protected_bodies:
+                self.model.geom_margin[geom] = max(
+                    self.model.geom_margin[geom], self.collision_margin)
         mujoco.mj_forward(self.model, self.data)
         self.joints = {}
         self.qpos_indices = {}
@@ -147,6 +167,7 @@ class G1Kinematics:
             body_name = "{}_wrist_yaw_link".format(side)
             self.body_ids[side] = mujoco.mj_name2id(
                 self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        self.neutral_q = {side: self.arm_q(side) for side in ("left", "right")}
 
     def arm_q(self, side):
         return self.data.qpos[self.qpos_indices[side]].copy()
@@ -162,8 +183,40 @@ class G1Kinematics:
     def neutral_targets(self):
         return {side: self.body_target(side) for side in ("left", "right")}
 
+    def unsafe_collision_pairs(self):
+        pairs = set()
+        for contact in self.data.contact:
+            if contact.dist >= self.collision_margin:
+                continue
+            body1 = int(self.model.geom_bodyid[contact.geom1])
+            body2 = int(self.model.geom_bodyid[contact.geom2])
+            arm_torso = any(
+                (body1 in self.distal_arm_bodies[side] and body2 in self.torso_bodies) or
+                (body2 in self.distal_arm_bodies[side] and body1 in self.torso_bodies)
+                for side in ("left", "right"))
+            arm_cross = (
+                (body1 in self.arm_bodies["left"] and body2 in self.arm_bodies["right"]) or
+                (body2 in self.arm_bodies["left"] and body1 in self.arm_bodies["right"]))
+            if arm_torso or arm_cross:
+                name1 = mujoco.mj_id2name(
+                    self.model, mujoco.mjtObj.mjOBJ_BODY, body1) or "world"
+                name2 = mujoco.mj_id2name(
+                    self.model, mujoco.mjtObj.mjOBJ_BODY, body2) or "world"
+                pairs.add(tuple(sorted((name1, name2))))
+        return pairs
+
+    def collision_safe_step(self, side, previous, candidate):
+        """Return the furthest collision-free point along one filtered step."""
+        for fraction in (1.0, 0.75, 0.5, 0.25, 0.0):
+            values = previous + fraction * (candidate - previous)
+            self.set_arm_q(side, values)
+            if not self.unsafe_collision_pairs():
+                return values, fraction < 1.0
+        self.set_arm_q(side, previous)
+        return previous.copy(), True
+
     def solve(self, side, target, initial=None, iterations=35, damping=0.04,
-              orientation_weight=0.12):
+              orientation_weight=0.12, posture_weight=0.025):
         q = self.arm_q(side) if initial is None else np.asarray(initial, dtype=float).copy()
         ranges = self.ranges[side]
         margin = 0.03
@@ -188,8 +241,13 @@ class G1Kinematics:
                 jac_position[:, dofs], orientation_weight * jac_rotation[:, dofs]))
             singular_values = np.linalg.svd(jacobian, compute_uv=False)
             adaptive_damping = damping + max(0.0, 0.03 - singular_values[-1])
-            system = jacobian @ jacobian.T + adaptive_damping**2 * np.eye(6)
-            step = jacobian.T @ np.linalg.solve(system, error)
+            system = (
+                jacobian.T @ jacobian +
+                (adaptive_damping**2 + posture_weight**2) * np.eye(len(q)))
+            gradient = (
+                jacobian.T @ error +
+                posture_weight**2 * (self.neutral_q[side] - q))
+            step = np.linalg.solve(system, gradient)
             step = np.clip(step, -0.12, 0.12)
             q = np.clip(q + step, ranges[:, 0] + margin, ranges[:, 1] - margin)
         self.set_arm_q(side, q)

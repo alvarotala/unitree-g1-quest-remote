@@ -24,6 +24,24 @@ El modelo esperado es
 
 ## Copiar y analizar un log
 
+La ruta corta descarga, procesa y abre el visualizador con un solo comando:
+
+```bash
+./production/phase3_view_log.sh --speed 2 quest-ID.ndjson
+```
+
+El reporte y la trayectoria reciben el ID del log para no sobrescribir pruebas
+anteriores. Si una captura no mantuvo ambos grips, puede inspeccionarse solo en
+simulacion con `--ignore-deadman`; sin esa opcion, un replay rechazado no abre
+el visualizador.
+
+```bash
+./production/phase3_view_log.sh \
+  --ignore-deadman --speed 2 quest-ID.ndjson
+```
+
+La forma manual equivalente es:
+
 ```bash
 rsync -av \
   unitree@192.168.123.164:~/unitree-g1-quest-remote/logs/quest-ID.ndjson \
@@ -67,12 +85,17 @@ es la ruta explícita recomendada.
 - IK damped-least-squares para 7 DOF por brazo, priorizando posición y
   aplicando por defecto el 35% de la rotación relativa de los controles para
   evitar que orientaciones humanas inalcanzables retuerzan todo el brazo;
+- preferencia secundaria por la postura neutral del G1 para evitar soluciones
+  extremas cuando varias configuraciones alcanzan la misma posición de mano;
 - margen de límites articulares del modelo oficial;
+- separación mínima de 25 mm entre brazos y torso, cabeza o pelvis, y entre
+  ambos brazos; cada paso se recorta antes del contacto y queda registrado;
 - límite de velocidad de 1 rad/s y aceleración de 3 rad/s²;
 - filtro pasa-bajos de 5 Hz;
 - watchdog de 100 ms;
 - rearme mediante soltar y volver a presionar el dead-man después de pérdida;
 - reporte de tracking inválido, watchdog, error IK y singularidades.
+- rechazo de cualquier trayectoria que conserve una autocollision peligrosa.
 
 Estos valores son deliberadamente conservadores y todavía no constituyen una
 autorización para controlar hardware.

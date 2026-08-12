@@ -55,6 +55,9 @@ def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.2
         "watchdogTrips": 0,
         "ikFailures": 0,
         "singularityWarnings": 0,
+        "collisionAvoidanceSamples": 0,
+        "unsafeCollisionSamples": 0,
+        "minimumBodyClearanceMeters": kinematics.collision_margin,
         "maxPositionErrorMeters": 0.0,
         "maxJointVelocityRadS": 0.0,
     }
@@ -91,6 +94,7 @@ def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.2
             continue
         report["activeSamples"] += 1
         was_active = True
+        avoided_collision = False
         for side in ("left", "right"):
             try:
                 target = calibration.target(sample, side)
@@ -100,6 +104,11 @@ def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.2
                 previous = filters[side].position.copy()
                 filtered = filters[side].update(
                     desired, dt, ranges[:, 0] + 0.03, ranges[:, 1] - 0.03)
+                filtered, avoided = kinematics.collision_safe_step(
+                    side, previous, filtered)
+                avoided_collision = avoided_collision or avoided
+                filters[side].position = filtered
+                filters[side].velocity = (filtered - previous) / max(dt, 0.001)
                 velocity = np.max(np.abs(filtered - previous)) / max(dt, 0.001)
                 report["maxJointVelocityRadS"] = max(report["maxJointVelocityRadS"], float(velocity))
                 report["maxPositionErrorMeters"] = max(report["maxPositionErrorMeters"], error)
@@ -111,12 +120,17 @@ def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.2
                 report["ikFailures"] += 1
                 was_active = False
                 break
+        if avoided_collision:
+            report["collisionAvoidanceSamples"] += 1
+        if kinematics.unsafe_collision_pairs():
+            report["unsafeCollisionSamples"] += 1
         trajectory_times.append(client_time)
         trajectory_q.append(np.concatenate(
             [filters[side].position for side in ("left", "right")]))
     report["acceptedForSimulation"] = (
         report["activeSamples"] > 0 and report["ikFailures"] == 0 and
-        report["maxPositionErrorMeters"] <= 0.08)
+        report["maxPositionErrorMeters"] <= 0.08 and
+        report["unsafeCollisionSamples"] == 0)
     report["positionErrorP95Meters"] = (
         float(np.percentile(position_errors, 95)) if position_errors else None)
     if trajectory_path is not None:

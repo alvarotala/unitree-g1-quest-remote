@@ -41,6 +41,7 @@ class Phase3Tests(unittest.TestCase):
         kinematics = G1Kinematics(model)
         self.assertEqual(len(kinematics.qpos_indices["left"]), 7)
         self.assertEqual(len(kinematics.qpos_indices["right"]), 7)
+        self.assertEqual(kinematics.unsafe_collision_pairs(), set())
 
     def test_synthetic_log_runs_through_offline_replay(self):
         root = Path(__file__).resolve().parents[2]
@@ -72,6 +73,7 @@ class Phase3Tests(unittest.TestCase):
         self.assertEqual(report["mode"], "OFFLINE_SIMULATION_ONLY")
         self.assertEqual(report["activeSamples"], len(samples))
         self.assertEqual(report["ikFailures"], 0)
+        self.assertEqual(report["unsafeCollisionSamples"], 0)
         self.assertTrue(report["acceptedForSimulation"])
 
 
