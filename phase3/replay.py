@@ -33,9 +33,13 @@ def valid_tracking(sample):
 def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.25,
            watchdog_ms=100.0, trajectory_path=None, orientation_scale=0.35):
     samples = load_samples(log_path)
-    neutral_sample = next((sample for sample in samples if valid_tracking(sample)), None)
+    neutral_sample = next((
+        sample for sample in samples
+        if valid_tracking(sample) and
+        (allow_without_deadman or deadman_pressed(sample))), None)
     if neutral_sample is None:
-        raise ValueError("no sample has valid head and both controller poses")
+        raise ValueError(
+            "no sample has valid head, both controllers and the required dead-man")
 
     kinematics = G1Kinematics(model_path)
     calibration = Calibration(
@@ -64,6 +68,7 @@ def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.2
     previous_time = None
     trajectory_times = []
     trajectory_q = []
+    trajectory_active = []
     needs_deadman_release = False
     was_active = False
     position_errors = []
@@ -91,6 +96,7 @@ def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.2
             trajectory_times.append(client_time)
             trajectory_q.append(np.concatenate(
                 [filters[side].position for side in ("left", "right")]))
+            trajectory_active.append(False)
             continue
         report["activeSamples"] += 1
         was_active = True
@@ -127,6 +133,7 @@ def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.2
         trajectory_times.append(client_time)
         trajectory_q.append(np.concatenate(
             [filters[side].position for side in ("left", "right")]))
+        trajectory_active.append(True)
     report["acceptedForSimulation"] = (
         report["activeSamples"] > 0 and report["ikFailures"] == 0 and
         report["maxPositionErrorMeters"] <= 0.08 and
@@ -138,6 +145,7 @@ def replay(log_path, model_path, allow_without_deadman=False, position_scale=0.2
             trajectory_path,
             client_time_ms=np.asarray(trajectory_times),
             arm_q=np.asarray(trajectory_q),
+            active=np.asarray(trajectory_active, dtype=bool),
         )
         report["trajectory"] = str(trajectory_path)
     return report

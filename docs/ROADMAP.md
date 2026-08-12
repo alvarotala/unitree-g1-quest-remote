@@ -37,18 +37,20 @@ simulación y no se reinterpretan como una prueba nominal perfecta. Ver
 
 ## Fase 3 — retargeting y simulación
 
-Activa. El primer replay usa el modelo oficial G1 29 DOF en
+Completada. El replay usa el modelo oficial G1 29 DOF en
 MuJoCo e implementa coordenadas, calibración neutral, IK de 7 DOF por brazo,
-límites, velocidad, aceleración, filtrado, singularidades, watchdog y dead-man.
-Ver [`../phase3/README.md`](../phase3/README.md). No importa SDK2 ni se comunica
-con el robot. El replay `msnihs1o-0079336a`, con escala cartesiana 0.25, fue
-aceptado para simulación: error p95 de 8.65 mm, error máximo de 71.64 mm, cero
-fallos IK, cero alertas finales de singularidad y un watchdog correspondiente a
-la pausa WebXR conocida. Falta inspección visual de la trayectoria. Fase 4
-sigue fuera del alcance actual.
+límites, velocidad, aceleración, filtrado, singularidades, watchdog, dead-man,
+preferencia de postura y separación corporal. Ver
+[`../phase3/README.md`](../phase3/README.md). La captura de cierre
+`msqpj9m8-ae1fd108` fue aceptada e inspeccionada visualmente: error p95 de
+9.21 mm, error máximo de 48.95 mm, cero fallos IK, singularidades, watchdogs o
+colisiones inseguras. La prevención de colisión intervino en 96 muestras.
 
 ## Fase 4 — brazos reales mediante `rt/arm_sdk`
 
+Activa. Ya existe una primera biblioteca C++ de supervisor, sin DDS, con máquina
+de estados, habilitación local, dead-man, TTL, LowState, fallos enclavados y
+limitador articular conservador. Ver [`../phase4/README.md`](../phase4/README.md).
 Se añadirá un ejecutable separado con activación explícita, mantener-presionado,
 interpolación desde postura actual, límites conservadores, timeout de red,
 parada local y prueba inicial con el robot soportado y sin caminar. El

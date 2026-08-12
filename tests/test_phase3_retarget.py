@@ -76,6 +76,31 @@ class Phase3Tests(unittest.TestCase):
         self.assertEqual(report["unsafeCollisionSamples"], 0)
         self.assertTrue(report["acceptedForSimulation"])
 
+    def test_calibration_starts_at_first_valid_deadman_sample(self):
+        root = Path(__file__).resolve().parents[2]
+        model = root / "unitree_mujoco/unitree_robots/g1/scene_29dof.xml"
+        if not model.exists():
+            self.skipTest("official unitree_mujoco checkout is absent")
+
+        def sample(sequence, pressed):
+            pose = {"position": [0, 1.3, -0.3], "orientation": [0, 0, 0, 1]}
+            controller = {
+                "grip": pose, "ray": pose,
+                "buttons": [{"pressed": False}, {"pressed": pressed}], "axes": [],
+            }
+            return {
+                "sequence": sequence, "clientTime": sequence * 11.1,
+                "head": {"position": [0, 1.6, 0], "orientation": [0, 0, 0, 1]},
+                "left": controller, "right": controller,
+            }
+
+        samples = [sample(0, False), sample(1, False), sample(2, True)]
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "calibration.ndjson"
+            log.write_text(json.dumps({"sessionId": "calibration", "samples": samples}) + "\n")
+            report = replay(log, model)
+        self.assertEqual(report["calibrationSequence"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

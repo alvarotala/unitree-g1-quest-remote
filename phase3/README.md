@@ -71,6 +71,11 @@ Visualizar:
   logs/phase3-trajectory.npz
 ```
 
+El visor recorta por defecto los segundos anteriores al primer dead-man y los
+posteriores al ultimo. Para revisar toda la sesion WebXR se puede agregar
+`--full-session`. La calibracion neutral se toma exactamente del primer frame
+con tracking valido y ambos grips presionados.
+
 En macOS la ventana MuJoCo requiere `mjpython`; el visor intenta relanzarse
 automáticamente si se invoca con el Python normal, pero usar el comando anterior
 es la ruta explícita recomendada.

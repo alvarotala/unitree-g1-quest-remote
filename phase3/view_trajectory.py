@@ -27,6 +27,9 @@ def main():
     parser.add_argument("trajectory", type=Path)
     parser.add_argument("--model", type=Path, default=default_model)
     parser.add_argument("--speed", type=float, default=1.0)
+    parser.add_argument(
+        "--full-session", action="store_true",
+        help="include leading and trailing frames recorded without the dead-man")
     args = parser.parse_args()
     if args.speed <= 0:
         parser.error("--speed must be positive")
@@ -36,6 +39,13 @@ def main():
     arm_q = trajectory["arm_q"]
     if arm_q.ndim != 2 or arm_q.shape[1] != 14 or len(times) != len(arm_q):
         raise ValueError("invalid Phase 3 trajectory")
+    if not args.full_session and "active" in trajectory:
+        active_indices = np.flatnonzero(trajectory["active"])
+        if len(active_indices) == 0:
+            raise ValueError("trajectory has no active dead-man frames")
+        first, last = int(active_indices[0]), int(active_indices[-1]) + 1
+        times = times[first:last]
+        arm_q = arm_q[first:last]
 
     model = mujoco.MjModel.from_xml_path(str(args.model))
     data = mujoco.MjData(model)

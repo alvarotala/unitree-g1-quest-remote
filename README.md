@@ -171,3 +171,9 @@ El replay de logs Quest contra el modelo oficial G1 29 DOF está documentado en
 [`phase3/README.md`](phase3/README.md). Se ejecuta en la Mac con MuJoCo, genera
 una trayectoria de 14 DOF y no contiene SDK2, DDS ni acceso al robot. Avanzar en
 esta simulación no autoriza por sí mismo una prueba física.
+
+## Fase 4: supervisor físico
+
+La primera lógica C++ de seguridad para la futura integración con `rt/arm_sdk`
+está documentada en [`phase4/README.md`](phase4/README.md). Por ahora no contiene
+ningún publisher y puede probarse sin conexión al robot.
