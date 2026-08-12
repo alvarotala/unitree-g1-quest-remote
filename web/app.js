@@ -19,12 +19,29 @@ let lastRttMs = null;
 let lastClockOffsetMs = null;
 let lastUploadOkAt = null;
 let localDrops = 0;
+let supervisorStatus = {
+  state:"OFFLINE", reason:"supervisor no iniciado", fresh:false,
+  wouldPublish:false, localEnable:false, questAgeMs:-1, lowstateAgeMs:-1
+};
+let liveInputs = {
+  head:false, leftTracked:false, rightTracked:false, leftGrip:false, rightGrip:false
+};
 
 const rounded = values => Array.from(values, n => Number(n.toFixed(4)));
 const poseData = pose => pose ? {
   position: rounded([pose.transform.position.x, pose.transform.position.y, pose.transform.position.z]),
   orientation: rounded([pose.transform.orientation.x, pose.transform.orientation.y, pose.transform.orientation.z, pose.transform.orientation.w])
 } : null;
+
+function pressed(controller,index=1) {
+  return controller?.buttons?.[index]?.pressed === true;
+}
+
+function applySupervisor(value) {
+  if (!value || typeof value !== "object") return;
+  supervisorStatus=value;
+  ui.safetyState.textContent=value.state||"OFFLINE";
+}
 
 function showPose(name, data) {
   const pose = ui[`${name}Pose`];
@@ -126,32 +143,38 @@ class XRScene {
 
   updateMenu(force=false) {
     const now = performance.now();
-    if (!force && this.menuUpdated && now-this.menuUpdated < 400) return;
+    if (!force && this.menuUpdated && now-this.menuUpdated < 100) return;
     this.menuUpdated = now;
     const c = this.menuCanvas, ctx = c.getContext("2d");
     const bg = ctx.createLinearGradient(0,0,c.width,c.height);
     bg.addColorStop(0,"#102c2d"); bg.addColorStop(1,"#0a1a20");
     ctx.fillStyle=bg; ctx.fillRect(0,0,c.width,c.height);
     ctx.strokeStyle="#4e8f87"; ctx.lineWidth=4; ctx.strokeRect(2,2,c.width-4,c.height-4);
-    ctx.fillStyle="#78f0bd"; ctx.font="700 26px system-ui"; ctx.fillText("UNITREE G1  ·  QUEST LINK",56,66);
-    ctx.fillStyle="#f1faf7"; ctx.font="700 64px system-ui"; ctx.fillText("Menú principal",56,145);
-    ctx.fillStyle="#92aaa6"; ctx.font="30px system-ui"; ctx.fillText("Transporte WebXR local · modo seguro",56,195);
+    const state=supervisorStatus.fresh ? supervisorStatus.state : "OFFLINE";
+    const stateColor=state==="ARMED" ? "#78f0bd" : state==="ARMING" ? "#e8bd6b" : state==="FAULT" ? "#ff6f6f" : "#88a5ab";
+    ctx.fillStyle="#78f0bd"; ctx.font="700 25px system-ui"; ctx.fillText("UNITREE G1  ·  QUEST LINK",56,58);
+    ctx.fillStyle=stateColor; ctx.font="800 62px system-ui"; ctx.fillText(state,56,132);
+    ctx.fillStyle="#92aaa6"; ctx.font="25px system-ui";
+    ctx.fillText((supervisorStatus.reason||"sin estado").slice(0,64),56,172);
     const cards = [
-      [56,"TRACKING","ACTIVO","#78f0bd"],
-      [354,"CALIBRAR","PRÓXIMAMENTE","#88a5ab"],
-      [652,"CONECTAR G1","BLOQUEADO","#e8bd6b"]
+      [56,"CONTROL IZQUIERDO",liveInputs.leftTracked?"TRACKING OK":"SIN TRACKING",liveInputs.leftGrip?"GRIP PRESIONADO":"GRIP SUELTO",liveInputs.leftTracked?"#78f0bd":"#ff6f6f"],
+      [354,"CONTROL DERECHO",liveInputs.rightTracked?"TRACKING OK":"SIN TRACKING",liveInputs.rightGrip?"GRIP PRESIONADO":"GRIP SUELTO",liveInputs.rightTracked?"#78f0bd":"#ff6f6f"],
+      [652,"SUPERVISOR PC2",supervisorStatus.localEnable?"LOCAL ENABLE ON":"LOCAL ENABLE OFF",supervisorStatus.wouldPublish?"WOULD PUBLISH: SI":"WOULD PUBLISH: NO",stateColor]
     ];
-    for (const [x,title,state,color] of cards) {
+    for (const [x,title,line1,line2,color] of cards) {
       ctx.fillStyle="#163238"; ctx.fillRect(x,245,270,180);
-      ctx.fillStyle=color; ctx.font="700 20px system-ui"; ctx.fillText(state,x+24,285);
-      ctx.fillStyle="#f1faf7"; ctx.font="700 29px system-ui"; ctx.fillText(title,x+24,340);
-      ctx.fillStyle="#89a09d"; ctx.font="22px system-ui";
-      ctx.fillText(title==="TRACKING" ? `${rateWindow.length} Hz · ${sequence} muestras` : title==="CALIBRAR" ? "Alinear torso y manos" : "Sin comandos DDS",x+24,386);
+      ctx.fillStyle="#f1faf7"; ctx.font="700 19px system-ui"; ctx.fillText(title,x+20,282);
+      ctx.fillStyle=color; ctx.font="700 21px system-ui"; ctx.fillText(line1,x+20,334);
+      ctx.fillStyle=line2.includes("PRESIONADO")||line2.includes("SI")?"#78f0bd":"#9bb1ad";
+      ctx.font="700 19px system-ui"; ctx.fillText(line2,x+20,382);
     }
-    ctx.fillStyle="#6f8985"; ctx.font="22px system-ui";
-    ctx.fillText("Los controles se visualizan en tiempo real",56,496);
-    ctx.fillStyle="#78f0bd"; ctx.fillRect(56,540,10,10);
-    ctx.fillStyle="#9bb1ad"; ctx.fillText("READ ONLY",80,555);
+    const questAge=supervisorStatus.questAgeMs>=0 ? `${supervisorStatus.questAgeMs} ms` : "—";
+    const lowAge=supervisorStatus.lowstateAgeMs>=0 ? `${supervisorStatus.lowstateAgeMs} ms` : "—";
+    ctx.fillStyle="#9bb1ad"; ctx.font="22px system-ui";
+    ctx.fillText(`Quest ${questAge}  ·  LowState ${lowAge}  ·  ${rateWindow.length} Hz  ·  seq ${sequence}`,56,490);
+    ctx.fillStyle=liveInputs.head?"#78f0bd":"#ff6f6f"; ctx.fillRect(56,535,10,10);
+    ctx.fillStyle="#9bb1ad"; ctx.fillText(liveInputs.head?"HMD TRACKING OK":"HMD SIN TRACKING",80,550);
+    ctx.fillStyle="#e8bd6b"; ctx.fillText("DRY-RUN · CERO COMANDOS DDS",600,550);
     const gl=this.gl;
     gl.bindTexture(gl.TEXTURE_2D,this.menuTexture);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
@@ -251,7 +274,7 @@ async function flush() {
     if(sessionId===batchSessionId){
       lastUploadOkAt=performance.now();
       ui.rtt.textContent=lastRttMs.toFixed(1); ui.loss.textContent=Number(result.lossPercent||0).toFixed(2);
-      ui.safetyState.textContent=result.safetyState||"DISARMED";
+      applySupervisor(result.supervisor);
       ui.uploadState.textContent="OK"; ui.uploadDetail.textContent=`${samples.length} muestras · seq ${samples[samples.length-1].sequence}`;
       if(xrSession){ui.status.textContent="Capturando tracking";ui.detail.textContent="Entorno activo · ningún comando de robot";ui.signalDot.style.background="var(--green)";}
     }
@@ -277,9 +300,16 @@ function onXRFrame(time,frame) {
   const leftInput=[...xrSession.inputSources].find(x=>x.handedness==="left");
   const rightInput=[...xrSession.inputSources].find(x=>x.handedness==="right");
   const left=controllerData(leftInput,frame), right=controllerData(rightInput,frame);
+  liveInputs={
+    head:!!head,
+    leftTracked:!!(left?.grip||left?.ray), rightTracked:!!(right?.grip||right?.ray),
+    leftGrip:pressed(left), rightGrip:pressed(right)
+  };
   pending.push({sequence:sequence++,clientTime:performance.now(),head,left,right});
   if (pending.length>120) { pending.shift(); localDrops++; }
   showPose("head",head); showPose("left",left?.grip||left?.ray||null); showPose("right",right?.grip||right?.ray||null);
+  if(liveInputs.leftTracked) ui.leftValid.textContent=liveInputs.leftGrip?"GRIP PRESIONADO":"GRIP SUELTO";
+  if(liveInputs.rightTracked) ui.rightValid.textContent=liveInputs.rightGrip?"GRIP PRESIONADO":"GRIP SUELTO";
   ui.sampleCount.textContent=sequence.toLocaleString();
   rateWindow.push(time); while(rateWindow.length&&rateWindow[0]<time-1000) rateWindow.shift();
   ui.rate.textContent=rateWindow.length;

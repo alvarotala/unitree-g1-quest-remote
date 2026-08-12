@@ -51,6 +51,33 @@ class PayloadTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             server.validate_payload({"protocolVersion": 1, "sessionId": "s", "samples": [bad]})
 
+    def test_safety_datagram_requires_tracking_and_both_second_buttons(self):
+        value = sample(7, 10.0)
+        for side in ("left", "right"):
+            value[side]["buttons"] = [{"pressed": False}, {"pressed": True}]
+        self.assertEqual(server.safety_datagram("session-1", value),
+                         b"G1Q1 session-1 7 1 1 1 1\n")
+        value["right"] = json.loads(json.dumps(value["right"]))
+        value["right"]["buttons"][1]["pressed"] = False
+        self.assertEqual(server.safety_datagram("session-1", value),
+                         b"G1Q1 session-1 7 1 0 1 0\n")
+
+    def test_reads_only_fresh_complete_supervisor_status(self):
+        value = {
+            "state": "ARMED", "reason": "ok", "wouldPublish": True,
+            "localEnable": True, "tracking": True, "deadman": True,
+            "leftGrip": True, "rightGrip": True,
+            "questAgeMs": 20, "lowstateAgeMs": 0,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "status.json"
+            path.write_text(json.dumps(value), encoding="utf-8")
+            result = server.read_supervisor_status(path, now=path.stat().st_mtime + 0.1)
+            self.assertTrue(result["fresh"])
+            self.assertEqual(result["state"], "ARMED")
+            stale = server.read_supervisor_status(path, now=path.stat().st_mtime + 1.0)
+            self.assertFalse(stale["fresh"])
+
 
 class SessionTests(unittest.TestCase):
     def test_counts_gaps_duplicates_order_and_tracking(self):

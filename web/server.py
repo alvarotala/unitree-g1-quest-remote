@@ -29,6 +29,8 @@ CERT_DIR = PROJECT_ROOT / ".cert"
 MAX_BODY_BYTES = 256 * 1024
 MAX_SAMPLES_PER_BATCH = 120
 STREAM_TIMEOUT_SECONDS = 0.75
+SAFETY_SOCKET_PATH = "/tmp/g1_quest_safety.sock"
+SUPERVISOR_STATUS_PATH = Path("/tmp/g1_quest_supervisor_status.json")
 log_lock = threading.Lock()
 
 
@@ -94,6 +96,61 @@ def validate_payload(payload):
         if not finite_number(client_time) or client_time < 0:
             raise ValueError("invalid sample clientTime")
     return session, samples
+
+
+def tracked_controller(sample, side):
+    controller = sample.get(side)
+    return (isinstance(controller, dict) and
+            isinstance(controller.get("grip") or controller.get("ray"), dict))
+
+
+def grip_pressed(sample, side):
+    controller = sample.get(side)
+    buttons = controller.get("buttons") if isinstance(controller, dict) else None
+    return (isinstance(buttons, list) and len(buttons) > 1 and
+            isinstance(buttons[1], dict) and buttons[1].get("pressed") is True)
+
+
+def safety_datagram(session, sample):
+    tracking = (isinstance(sample.get("head"), dict) and
+                tracked_controller(sample, "left") and
+                tracked_controller(sample, "right"))
+    left_grip = grip_pressed(sample, "left")
+    right_grip = grip_pressed(sample, "right")
+    deadman = left_grip and right_grip
+    return (f"G1Q1 {session} {sample['sequence']} "
+            f"{int(tracking)} {int(deadman)} "
+            f"{int(left_grip)} {int(right_grip)}\n").encode("ascii")
+
+
+def send_safety_datagram(session, sample, socket_path=SAFETY_SOCKET_PATH):
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+    try:
+        sock.sendto(safety_datagram(session, sample), socket_path)
+    except OSError:
+        pass  # El consumidor dry-run es opcional.
+    finally:
+        sock.close()
+
+
+def read_supervisor_status(path=SUPERVISOR_STATUS_PATH, now=None):
+    now = time.time() if now is None else now
+    fallback = {
+        "state": "OFFLINE", "reason": "supervisor no iniciado",
+        "fresh": False, "wouldPublish": False, "localEnable": False,
+    }
+    try:
+        stat = path.stat()
+        if now - stat.st_mtime > 0.5:
+            return {**fallback, "reason": "estado del supervisor vencido"}
+        value = json.loads(path.read_text(encoding="utf-8"))
+        required = {"state", "reason", "wouldPublish", "localEnable",
+                    "tracking", "deadman", "questAgeMs", "lowstateAgeMs"}
+        if not isinstance(value, dict) or not required.issubset(value):
+            return {**fallback, "reason": "estado del supervisor invalido"}
+        return {**value, "fresh": True}
+    except (OSError, json.JSONDecodeError):
+        return fallback
 
 
 @dataclass
@@ -239,11 +296,13 @@ class QuestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/status":
+            supervisor = read_supervisor_status()
             self.send_json(HTTPStatus.OK, {
                 "ok": True,
                 "mode": "READ_ONLY",
                 "serverTimeMs": round(time.time() * 1000, 3),
                 "streamTimeoutMs": round(STREAM_TIMEOUT_SECONDS * 1000),
+                "supervisor": supervisor,
                 **self.server.registry.status(),
             })
             return
@@ -291,11 +350,13 @@ class QuestHandler(SimpleHTTPRequestHandler):
         log_path = LOG_DIR / f"quest-{session}.ndjson"
         with log_lock, log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+        send_safety_datagram(session, samples[-1])
         self.send_json(HTTPStatus.OK, {
             "ok": True,
             "accepted": len(samples),
             "serverReceivedTimeMs": round(server_received_epoch_ms, 3),
             "serverSentTimeMs": round(time.time() * 1000, 3),
+            "supervisor": read_supervisor_status(),
             **metrics,
         })
 

@@ -22,6 +22,11 @@ secuencias, tracking del visor/controladores y botones. El estado de seguridad
 permanece siempre en `DISARMED`; si no hay stream reciente, el enlace cambia a
 `DISCONNECTED`. Solo se admite una sesión Quest activa a la vez.
 
+En Fase 4, cuando existe un consumidor local, el servidor replica únicamente
+sesión, secuencia, validez de tracking y ambos grips a través del socket Unix
+`/tmp/g1_quest_safety.sock`. Continúa sin importar SDK2, abrir DDS o aceptar
+comandos de motor; si el socket no existe, el servidor funciona normalmente.
+
 Para inspeccionar el estado desde PC2:
 
 ```bash

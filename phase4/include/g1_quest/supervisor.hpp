@@ -27,7 +27,7 @@ struct SafetyInputs {
 
 struct SafetyConfig {
   std::chrono::milliseconds arming_hold{1000};
-  std::chrono::milliseconds quest_timeout{100};
+  std::chrono::milliseconds quest_timeout{250};
   std::chrono::milliseconds lowstate_timeout{100};
 };
 

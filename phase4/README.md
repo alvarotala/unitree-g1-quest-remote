@@ -24,7 +24,41 @@ Compilar y ejecutar las pruebas en cualquier computadora:
 ./production/build_phase4_safety.sh
 ```
 
-Todavía no existe un publisher en este directorio. El siguiente incremento será
-un ejecutable separado que primero se ejecute en modo `--dry-run`, lea
-`rt/lowstate` y muestre los comandos que habría enviado. La publicación real
-requerirá otra opción explícita y una prueba con el G1 correctamente soportado.
+## Dry-run con LowState real
+
+En PC2 puede compilarse el ejecutable read-only:
+
+```bash
+./production/build_phase4_dry_run.sh
+./build/phase4/g1_arm_dry_run --interface eth0 --duration 8
+```
+
+El modo normal debe permanecer `DISCONNECTED` y mostrar `WOULD_PUBLISH=no`.
+Para ejercitar la máquina de estados con señales Quest simuladas, sin publicar:
+
+```bash
+./build/phase4/g1_arm_dry_run \
+  --interface eth0 --duration 8 --exercise-arming
+```
+
+Para usar tracking y ambos grips reales del Quest, iniciar primero el servidor
+WebXR actualizado y luego el dry-run con habilitacion local explicita:
+
+```bash
+python3 web/server.py --ip 192.168.100.209
+
+# En otra terminal de PC2:
+./build/phase4/g1_arm_dry_run \
+  --interface eth0 --duration 30 --quest-live --local-enable
+```
+
+El servidor envia por `/tmp/g1_quest_safety.sock` únicamente sesión, secuencia,
+tracking y dead-man. El socket es local, tiene permisos `0600` y no atraviesa
+ninguna interfaz de red. Un datagrama con más de 250 ms desarma el supervisor.
+`--local-enable` pertenece al proceso de PC2: el Quest no puede sustituirlo.
+El dry-run devuelve su estado mediante un archivo local efímero; el panel VR
+muestra estado, motivo, grips individuales, tracking, edades y `WOULD_PUBLISH`.
+
+La suite inspecciona el fuente y falla si aparecen APIs de publisher, LowCmd o
+el topic de comandos. La publicación real requerirá otro ejecutable, otra
+opción explícita y una prueba con el G1 correctamente soportado.
