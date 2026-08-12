@@ -1,0 +1,17 @@
+{
+  "acceptedForSimulation": true,
+  "activeSamples": 1483,
+  "calibrationSequence": 1754,
+  "disarmedSamples": 3021,
+  "ikFailures": 0,
+  "maxJointVelocityRadS": 1.0000000000000118,
+  "maxPositionErrorMeters": 0.0716412152661752,
+  "mode": "OFFLINE_SIMULATION_ONLY",
+  "positionErrorP95Meters": 0.008652610202189173,
+  "positionScale": 0.25,
+  "samples": 4504,
+  "singularityWarnings": 0,
+  "trackingInvalidSamples": 3021,
+  "trajectory": "logs/phase3-trajectory.npz",
+  "watchdogTrips": 1
+}

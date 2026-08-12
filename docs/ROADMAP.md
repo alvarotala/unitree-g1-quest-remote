@@ -26,19 +26,26 @@ clientes de cambio de modo.
 
 ## Fase 2 — transporte Quest sin movimiento
 
-En validación. El receptor HTTPS registra poses del visor y controladores,
-botones, secuencia, timestamps, RTT, jitter y pérdida; impone una sola sesión,
-escucha únicamente en la IP Quest indicada y permanece siempre `DISARMED`. Se
-deben completar la captura nominal y las pruebas de pérdida/red descritas en
-[`PHASE2_TEST_PLAN.md`](PHASE2_TEST_PLAN.md). Todavía no hay publicación DDS
-hacia el robot.
+Completada por decisión del proyecto. El receptor HTTPS registró poses,
+controles, RTT, jitter y secuencias sobre `pepe`, ligado exclusivamente a
+`wlan0`, con forwarding desactivado y estado permanente `DISARMED`. La captura
+de cierre obtuvo 0% de pérdida, cero duplicados y cero paquetes fuera de orden.
+Se aceptaron como desviaciones conocidas una pausa WebXR de 2355.8 ms y tracking
+intermitente (izquierdo 32.926%, derecho 71.781%); deben permanecer visibles en
+simulación y no se reinterpretan como una prueba nominal perfecta. Ver
+[`PHASE2_TEST_PLAN.md`](PHASE2_TEST_PLAN.md).
 
 ## Fase 3 — retargeting y simulación
 
-Convertir poses a objetivos articulares y validar en MuJoCo: coordenadas,
-calibración neutral, límites, velocidad, aceleración, filtrado, singularidades,
-watchdog y dead-man switch. El retargeting definitivo se ejecutará en PC2 y
-recibirá intención cartesiana; Quest no enviará comandos de motor.
+Activa. El primer replay usa el modelo oficial G1 29 DOF en
+MuJoCo e implementa coordenadas, calibración neutral, IK de 7 DOF por brazo,
+límites, velocidad, aceleración, filtrado, singularidades, watchdog y dead-man.
+Ver [`../phase3/README.md`](../phase3/README.md). No importa SDK2 ni se comunica
+con el robot. El replay `msnihs1o-0079336a`, con escala cartesiana 0.25, fue
+aceptado para simulación: error p95 de 8.65 mm, error máximo de 71.64 mm, cero
+fallos IK, cero alertas finales de singularidad y un watchdog correspondiente a
+la pausa WebXR conocida. Falta inspección visual de la trayectoria. Fase 4
+sigue fuera del alcance actual.
 
 ## Fase 4 — brazos reales mediante `rt/arm_sdk`
 

@@ -164,3 +164,10 @@ El estado permanece siempre `DISARMED`. Seguir el
 
 Para desarrollo también puede ejecutarse en una Mac, pero la validación de la
 arquitectura final debe hacerse directamente en PC2.
+
+## Fase 3: retargeting y simulación offline
+
+El replay de logs Quest contra el modelo oficial G1 29 DOF está documentado en
+[`phase3/README.md`](phase3/README.md). Se ejecuta en la Mac con MuJoCo, genera
+una trayectoria de 14 DOF y no contiene SDK2, DDS ni acceso al robot. Avanzar en
+esta simulación no autoriza por sí mismo una prueba física.

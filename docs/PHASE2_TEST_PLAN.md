@@ -112,3 +112,13 @@ La Fase 2 se considera terminada únicamente cuando:
 
 La Fase 3 seguirá usando estos logs como entrada para retargeting en simulación;
 todavía no se habilitará movimiento real.
+
+## Resultado registrado
+
+La fase se cerró por decisión del proyecto usando la red `pepe`. La captura
+`msnihs1o-0079336a` obtuvo 0% de pérdida, cero duplicados y cero paquetes fuera
+de orden, con RTT p95 de 98.095 ms. Se aceptaron explícitamente como desviaciones
+una pausa WebXR máxima de 2355.8 ms y tracking válido de 32.926% izquierdo y
+71.781% derecho. El analizador conserva el resultado `FAIL` original para no
+perder esa evidencia; el cierre es una aceptación documentada, no una
+alteración retroactiva de los umbrales.

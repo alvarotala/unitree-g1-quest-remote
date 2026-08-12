@@ -1,8 +1,10 @@
 .DS_Store
 .cert/
+.venv-phase3/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 build/
 dist/
 logs/*.ndjson
+/.venv-phase3
