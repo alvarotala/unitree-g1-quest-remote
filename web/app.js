@@ -2,7 +2,7 @@ const ui = Object.fromEntries([
   "signalDot","status","detail","enterVr","sampleCount","rate","uploadState",
   "uploadDetail","headPose","headValid","headCard","leftPose","leftValid",
   "leftCard","rightPose","rightValid","rightCard","sessionLabel",
-  "rtt","jitter","loss","safetyState"
+  "rtt","jitter","loss","safetyState","cameraVideo","cameraState","cameraDetail"
 ].map(id => [id, document.getElementById(id)]));
 
 let xrSession = null;
@@ -19,6 +19,11 @@ let lastRttMs = null;
 let lastClockOffsetMs = null;
 let lastUploadOkAt = null;
 let localDrops = 0;
+let cameraPeer = null;
+let cameraState = "ESPERA";
+let cameraStatsTimer = null;
+let cameraLastBytes = 0;
+let cameraLastStatsAt = 0;
 let supervisorStatus = {
   state:"OFFLINE", reason:"supervisor no iniciado", fresh:false,
   wouldPublish:false, localEnable:false, questAgeMs:-1, lowstateAgeMs:-1
@@ -104,6 +109,13 @@ class XRScene {
     this.menuCanvas.width = 1024;
     this.menuCanvas.height = 620;
     this.menuTexture = gl.createTexture();
+    this.cameraTexture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,this.cameraTexture);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([5,12,14,255]));
     this.updateMenu(true);
   }
 
@@ -138,8 +150,14 @@ class XRScene {
     return out;
   }
 
-  transform(x,y,z,sx=1,sy=1,sz=1) {
-    return new Float32Array([sx,0,0,0, 0,sy,0,0, 0,0,sz,0, x,y,z,1]);
+  transform(x,y,z,sx=1,sy=1,sz=1,yaw=0) {
+    const cosine=Math.cos(yaw),sine=Math.sin(yaw);
+    return new Float32Array([
+      cosine*sx,0,-sine*sx,0,
+      0,sy,0,0,
+      sine*sz,0,cosine*sz,0,
+      x,y,z,1
+    ]);
   }
 
   updateMenu(force=false) {
@@ -176,7 +194,11 @@ class XRScene {
     ctx.fillText(`vx ${walk[0].toFixed(2)}  vy ${walk[1].toFixed(2)}  giro ${walk[2].toFixed(2)}  ·  Quest ${questAge}  ·  LowState ${lowAge}`,56,490);
     ctx.fillStyle=liveInputs.head?"#78f0bd":"#ff6f6f"; ctx.fillRect(56,535,10,10);
     ctx.fillStyle="#9bb1ad"; ctx.fillText(liveInputs.head?"HMD TRACKING OK":"HMD SIN TRACKING",80,550);
-    ctx.fillStyle="#e8bd6b"; ctx.fillText("DRY-RUN · CERO COMANDOS DDS",600,550);
+    const runtimeMode=supervisorStatus.runtimeMode||"DRY_RUN";
+    ctx.fillStyle=runtimeMode==="LIVE_LOCOMOTION"?"#ff8f70":"#e8bd6b";
+    ctx.fillText(runtimeMode==="LIVE_LOCOMOTION"?"LIVE LOCOMOTION · COMANDOS REALES":"DRY-RUN · CERO COMANDOS DDS",540,550);
+    ctx.fillStyle=cameraState==="CONECTADA"?"#78f0bd":"#e8bd6b";
+    ctx.font="700 18px system-ui"; ctx.fillText(`CAMARA ${cameraState}`,600,585);
     const gl=this.gl;
     gl.bindTexture(gl.TEXTURE_2D,this.menuTexture);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
@@ -215,8 +237,27 @@ class XRScene {
     gl.useProgram(p); this.bindAttribute(p,"p",this.quad,3); this.bindAttribute(p,"uv",this.uv,2);
     gl.uniformMatrix4fv(gl.getUniformLocation(p,"projection"),false,projection);
     gl.uniformMatrix4fv(gl.getUniformLocation(p,"view"),false,view);
-    gl.uniformMatrix4fv(gl.getUniformLocation(p,"model"),false,this.transform(0,1.38,-1.7,.78,.47,1));
+    const x=-1.65,z=-2.05;
+    const faceViewerYaw=Math.atan2(-x,-z);
+    gl.uniformMatrix4fv(gl.getUniformLocation(p,"model"),false,this.transform(x,1.20,z,.68,.41,1,faceViewerYaw));
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,this.menuTexture);
+    gl.uniform1i(gl.getUniformLocation(p,"image"),0);
+    gl.drawArrays(gl.TRIANGLES,0,6);
+  }
+
+  drawCamera(projection,view) {
+    const gl=this.gl,p=this.textureProgram,video=ui.cameraVideo;
+    if(video?.readyState>=HTMLMediaElement.HAVE_CURRENT_DATA){
+      try{
+        gl.bindTexture(gl.TEXTURE_2D,this.cameraTexture);
+        gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
+      }catch(_error){ /* keep the last complete frame */ }
+    }
+    gl.useProgram(p); this.bindAttribute(p,"p",this.quad,3); this.bindAttribute(p,"uv",this.uv,2);
+    gl.uniformMatrix4fv(gl.getUniformLocation(p,"projection"),false,projection);
+    gl.uniformMatrix4fv(gl.getUniformLocation(p,"view"),false,view);
+    gl.uniformMatrix4fv(gl.getUniformLocation(p,"model"),false,this.transform(0,1.55,-2.2,.96,.54,1));
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,this.cameraTexture);
     gl.uniform1i(gl.getUniformLocation(p,"image"),0);
     gl.drawArrays(gl.TRIANGLES,0,6);
   }
@@ -246,6 +287,7 @@ class XRScene {
       this.drawCube(projection,camera,this.transform(0,-.055,-1.8,4,.025,4),[.045,.14,.15,1]);
       this.drawCube(projection,camera,this.transform(-1.65,.34,-2.1,.012,.38,.012),[.25,.7,.62,1]);
       this.drawCube(projection,camera,this.transform(1.65,.34,-2.1,.012,.38,.012),[.25,.7,.62,1]);
+      this.drawCamera(projection,camera);
       this.drawMenu(projection,camera);
       const leftPose=leftInput?.gripSpace ? frame.getPose(leftInput.gripSpace,referenceSpace) : null;
       const rightPose=rightInput?.gripSpace ? frame.getPose(rightInput.gripSpace,referenceSpace) : null;
@@ -254,6 +296,94 @@ class XRScene {
       gl.disable(gl.SCISSOR_TEST);
     }
   }
+}
+
+function setCameraState(state,detail) {
+  cameraState=state;
+  ui.cameraState.textContent=state;
+  ui.cameraDetail.textContent=detail;
+}
+
+function waitForIceGathering(peer,timeoutMs=6000) {
+  if(peer.iceGatheringState==="complete") return Promise.resolve();
+  return new Promise((resolve,reject)=>{
+    const timeout=setTimeout(()=>{cleanup();reject(new Error("timeout ICE del Quest"));},timeoutMs);
+    const changed=()=>{if(peer.iceGatheringState==="complete"){cleanup();resolve();}};
+    const cleanup=()=>{clearTimeout(timeout);peer.removeEventListener("icegatheringstatechange",changed);};
+    peer.addEventListener("icegatheringstatechange",changed);
+  });
+}
+
+function startCameraStats(peer) {
+  if(cameraStatsTimer)clearInterval(cameraStatsTimer);
+  cameraLastBytes=0; cameraLastStatsAt=performance.now();
+  cameraStatsTimer=setInterval(async()=>{
+    if(cameraPeer!==peer)return;
+    try{
+      const reports=await peer.getStats();
+      let inbound=null;
+      reports.forEach(report=>{
+        if(report.type==="inbound-rtp"&&report.kind==="video"&&!report.isRemote)inbound=report;
+      });
+      if(!inbound)return;
+      const now=performance.now(),bytes=Number(inbound.bytesReceived||0);
+      const elapsed=Math.max(now-cameraLastStatsAt,1);
+      const mbps=Math.max(0,(bytes-cameraLastBytes)*8/elapsed/1000);
+      cameraLastBytes=bytes; cameraLastStatsAt=now;
+      const frames=Number(inbound.framesDecoded||0);
+      const size=inbound.frameWidth&&inbound.frameHeight?`${inbound.frameWidth}×${inbound.frameHeight}`:"video";
+      if(bytes>0&&frames===0)setCameraState("RECIBIENDO",`${mbps.toFixed(2)} Mbit/s · 0 frames decodificados`);
+      else if(frames>0)setCameraState("CONECTADA",`${size} · ${mbps.toFixed(2)} Mbit/s · ${frames} frames`);
+    }catch(_error){ /* stats are diagnostic only */ }
+  },1000);
+}
+
+async function startCamera() {
+  if(cameraPeer) stopCamera(false);
+  setCameraState("NEGOCIANDO","Solicitando H.264 nativo a PC2");
+  const peer=new RTCPeerConnection({iceServers:[],bundlePolicy:"max-bundle"});
+  cameraPeer=peer;
+  peer.addTransceiver("video",{direction:"recvonly"});
+  peer.addEventListener("track",event=>{
+    if(cameraPeer!==peer)return;
+    ui.cameraVideo.srcObject=event.streams[0]||new MediaStream([event.track]);
+    ui.cameraVideo.play().catch(()=>{});
+  });
+  peer.addEventListener("connectionstatechange",()=>{
+    if(cameraPeer!==peer)return;
+    const state=peer.connectionState;
+    if(state==="connected"){
+      setCameraState("CONECTADA","Esperando los primeros frames H.264");
+      startCameraStats(peer);
+    }
+    else if(state==="failed"||state==="disconnected") setCameraState("ERROR",`WebRTC ${state}`);
+    else setCameraState(state.toUpperCase(),"Enlace WebRTC de cámara");
+  });
+  try{
+    const offer=await peer.createOffer();
+    await peer.setLocalDescription(offer);
+    await waitForIceGathering(peer);
+    const response=await fetch("/api/camera/offer",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({type:"offer",sdp:peer.localDescription.sdp})
+    });
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error||`HTTP ${response.status}`);
+    await peer.setRemoteDescription({type:"answer",sdp:result.sdp});
+  }catch(error){
+    if(cameraPeer===peer){
+      setCameraState("ERROR",error.message);
+      peer.close(); cameraPeer=null;
+    }
+  }
+}
+
+function stopCamera(notifyServer=true) {
+  if(cameraStatsTimer){clearInterval(cameraStatsTimer);cameraStatsTimer=null;}
+  if(cameraPeer){cameraPeer.close();cameraPeer=null;}
+  ui.cameraVideo.pause(); ui.cameraVideo.srcObject=null;
+  setCameraState("DETENIDA","Sin sesión de video activa");
+  if(notifyServer)fetch("/api/camera/stop",{method:"POST",keepalive:true}).catch(()=>{});
 }
 
 async function flush() {
@@ -339,10 +469,12 @@ async function enterVR() {
     ui.safetyState.textContent="DISARMED";
     ui.enterVr.textContent="Salir de VR"; ui.enterVr.onclick=()=>xrSession.end();
     xrSession.requestAnimationFrame(onXRFrame);
+    if(!cameraPeer)startCamera();
   } catch(error) { ui.status.textContent="No se pudo iniciar VR"; ui.detail.textContent=error.message; }
 }
 
 function endSession() {
+  stopCamera();
   xrSession=null; referenceSpace=null; renderer=null; flush();
   ui.status.textContent="DISARMED"; ui.detail.textContent="La sesión terminó de forma segura";
   ui.signalDot.style.background="var(--amber)"; ui.safetyState.textContent="DISARMED";
@@ -352,10 +484,14 @@ function endSession() {
 async function boot() {
   try {
     const response=await fetch("/api/status"); if(!response.ok) throw new Error("Servidor no disponible");
+    const initial=await response.json();
+    if(initial.camera?.enabled) setCameraState("LISTA","Se conectará al entrar en VR");
+    else setCameraState("NO DISPONIBLE",initial.camera?.reason||"gateway deshabilitado");
     if(!navigator.xr) throw new Error("Este navegador no expone WebXR");
     if(!await navigator.xr.isSessionSupported("immersive-vr")) throw new Error("Modo immersive-vr no disponible");
     ui.status.textContent="Quest listo"; ui.detail.textContent="Servidor local conectado · WebXR disponible";
     ui.enterVr.disabled=false; ui.enterVr.onclick=enterVR; ui.signalDot.style.background="var(--green)";
+    if(initial.camera?.enabled)startCamera();
   } catch(error) { ui.status.textContent="Abrí esta URL en el Quest"; ui.detail.textContent=error.message; }
 }
 
@@ -369,4 +505,5 @@ setInterval(()=>{
     ui.signalDot.style.background="var(--amber)"; ui.safetyState.textContent="DISARMED";
   }
 },250);
+window.addEventListener("pagehide",()=>stopCamera());
 boot();

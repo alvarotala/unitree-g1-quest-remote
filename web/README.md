@@ -1,4 +1,4 @@
-# WebXR transport probe — Fase 2
+# WebXR, supervisor dry-run y cámara frontal
 
 Servidor HTTPS sin dependencias externas para la fase de transporte Quest. La
 app captura poses y controles WebXR y guarda lotes NDJSON en `../logs/`. No
@@ -26,6 +26,36 @@ En Fase 4, cuando existe un consumidor local, el servidor replica únicamente
 sesión, secuencia, validez de tracking y ambos grips a través del socket Unix
 `/tmp/g1_quest_safety.sock`. Continúa sin importar SDK2, abrir DDS o aceptar
 comandos de motor; si el socket no existe, el servidor funciona normalmente.
+
+## Cámara RTP/WebRTC
+
+En el G1 probado, `videohub_pc4` publica su H.264 nativo por multicast RTP en
+`230.1.1.1:1720`, payload type 96, a través de `eth0`. El servidor puede unirse
+a ese flujo pasivamente y crear una sesión WebRTC hacia el Quest:
+
+```bash
+python3 web/server.py \
+  --ip 192.168.100.209 \
+  --camera-interface eth0
+```
+
+El gateway no contiene `v4l2src`, no abre `/dev/video4`, no detiene el video
+hub y no transcodifica. Sólo admite un peer de cámara activo; una negociación
+nueva cierra la anterior. Al salir de VR, el navegador cierra el peer y solicita
+detener el pipeline receptor. Para operar temporalmente sin video:
+
+```bash
+python3 web/server.py --ip 192.168.100.209 --no-camera
+```
+
+Dependencias verificadas en PC2: GStreamer 1.16.3, bindings GI para Gst,
+GstSdp y GstWebRTC, plugins H.264/DTLS/SRTP y
+`gstreamer1.0-nice:arm64 0.1.16-1`. Los probes de diagnóstico son:
+
+```bash
+./production/rtp_camera_probe.sh --duration 10
+./production/webrtc_capability_probe.sh
+```
 
 Para inspeccionar el estado desde PC2:
 

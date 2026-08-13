@@ -30,7 +30,7 @@ readelf -Ws "${hub_bin}" 2>/dev/null | \
 echo
 echo "=== Configuración nginx relacionada ==="
 grep -RniE 'video|camera|stream|webrtc|rtsp|h264|jpeg' \
-  /etc/nginx /unitree 2>/dev/null | head -300 || true
+  /etc/nginx /unitree/etc /unitree/module 2>/dev/null | head -300 || true
 
 echo
 echo "=== IDL y headers de video instalados ==="

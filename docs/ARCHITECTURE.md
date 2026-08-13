@@ -37,6 +37,8 @@ flowchart LR
     SDK -->|"DDS por eth0"| G1
     G1 -->|"rt/lowstate"| SAFE
     SAFE -->|"estado y telemetría"| Q
+    G1 -->|"videohub RTP/H.264"| RX
+    RX -->|"WebRTC de video"| Q
 ```
 
 El router es solamente infraestructura de red. No calcula poses, no ejecuta
@@ -96,6 +98,8 @@ El gateway de aplicación es la única frontera entre las dos redes.
 - Lee `rt/lowstate` y es el único componente que puede publicar
   `rt/arm_sdk`.
 - Devuelve al Quest estado, tracking, latencia, fallos y telemetría resumida.
+- Recibe pasivamente el H.264 del `videohub_pc4` y lo entrega mediante WebRTC;
+  nunca abre directamente el dispositivo de cámara.
 
 ## Flujo de datos
 

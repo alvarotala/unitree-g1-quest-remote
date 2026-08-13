@@ -6,7 +6,9 @@ __pycache__/
 .pytest_cache/
 build/
 dist/
+*.deb
 logs/*.ndjson
 /.venv-phase3
 /logs
+run/
 /logs

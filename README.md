@@ -20,9 +20,12 @@ El ejecutable principal solamente crea un `ChannelSubscriber` de
 `rt/lowstate`. No incluye publishers, mensajes de comando ni clientes que
 cambien el modo del robot.
 
-En PC2 no hay que ejecutar `apt install`, `apt upgrade`, `pip install` ni
+En PC2 no hay que ejecutar actualizaciones generales, `pip install` global ni
 `make install`. Se reutiliza CycloneDDS instalado por Unitree y una copia local
-del SDK2 oficial con los mensajes `unitree/idl/hg` requeridos por G1.
+del SDK2 oficial con los mensajes `unitree/idl/hg` requeridos por G1. La única
+extensión de sistema añadida para video es el paquete oficial y verificable
+`gstreamer1.0-nice:arm64 0.1.16-1`, necesario para ICE/WebRTC y compatible con
+el `libnice10` preinstalado.
 
 ## Copiar a PC2 desde la estación de desarrollo
 
@@ -177,3 +180,30 @@ esta simulación no autoriza por sí mismo una prueba física.
 La primera lógica C++ de seguridad para la futura integración con `rt/arm_sdk`
 está documentada en [`phase4/README.md`](phase4/README.md). Por ahora no contiene
 ningún publisher y puede probarse sin conexión al robot.
+
+## Cámara frontal en Quest
+
+El proceso nativo `videohub_pc4` continúa siendo el único propietario de
+`/dev/video4`. Su salida H.264 1280×720 a 15 FPS se recibe pasivamente desde el
+multicast RTP `230.1.1.1:1720` por `eth0`, se reempaqueta sin transcodificar y
+se entrega al Quest mediante WebRTC por `wlan0`. Esto permite conservar al
+mismo tiempo el video de la app oficial de Unitree.
+
+Validaciones disponibles en PC2:
+
+```bash
+./production/rtp_camera_probe.sh --duration 10
+./production/webrtc_capability_probe.sh
+```
+
+Para iniciar la app con cámara:
+
+```bash
+python3 web/server.py \
+  --ip 192.168.100.209 \
+  --camera-interface eth0
+```
+
+La página muestra una previsualización 2D y, al entrar en VR, coloca el video
+en un panel 16:9 sobre el panel de estado. `--no-camera` desactiva este gateway
+sin afectar tracking, logs ni el supervisor dry-run.

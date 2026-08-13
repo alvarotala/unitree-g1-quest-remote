@@ -19,6 +19,7 @@ def load_module(name, relative_path):
 
 server = load_module("quest_web_server", "web/server.py")
 analyzer = load_module("quest_log_analyzer", "web/analyze_logs.py")
+camera = load_module("quest_camera_webrtc", "web/camera_webrtc.py")
 
 
 def sample(sequence, client_time, tracked=True):
@@ -34,6 +35,30 @@ def sample(sequence, client_time, tracked=True):
 
 
 class PayloadTests(unittest.TestCase):
+    def test_camera_pipeline_reuses_native_multicast_without_v4l2(self):
+        description = camera.pipeline_description("eth0", 102)
+        self.assertIn("230.1.1.1", description)
+        self.assertIn("port=1720", description)
+        self.assertIn("webrtcbin", description)
+        self.assertIn("pt=102", description)
+        self.assertIn("payload=102", description)
+        self.assertNotIn("/dev/video", description)
+        self.assertNotIn("v4l2src", description)
+
+    def test_camera_offer_requires_video_sdp(self):
+        valid = ("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96 102\r\n"
+                 "a=rtpmap:96 VP8/90000\r\n"
+                 "a=rtpmap:102 H264/90000\r\n"
+                 "a=fmtp:102 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f\r\n")
+        self.assertEqual(camera.validate_offer_sdp(valid), valid)
+        self.assertEqual(camera.h264_payload_type(valid), 102)
+        with self.assertRaises(ValueError):
+            camera.validate_offer_sdp("v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\n")
+        with self.assertRaises(ValueError):
+            camera.h264_payload_type("v=0\r\nm=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n")
+        with self.assertRaises(ValueError):
+            camera.pipeline_description("eth0;bad")
+
     def test_valid_payload(self):
         session, samples = server.validate_payload({
             "protocolVersion": 1,

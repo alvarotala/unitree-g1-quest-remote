@@ -21,6 +21,11 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+try:
+    from camera_webrtc import CameraGateway, CameraUnavailable, validate_offer_sdp
+except ModuleNotFoundError:
+    from web.camera_webrtc import CameraGateway, CameraUnavailable, validate_offer_sdp
+
 
 WEB_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = WEB_ROOT.parent
@@ -309,7 +314,7 @@ class QuestHandler(SimpleHTTPRequestHandler):
         self.send_header(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "connect-src 'self'; img-src 'self' data:",
+            "connect-src 'self'; img-src 'self' data:; media-src 'self' blob:",
         )
         super().end_headers()
 
@@ -330,12 +335,20 @@ class QuestHandler(SimpleHTTPRequestHandler):
                 "serverTimeMs": round(time.time() * 1000, 3),
                 "streamTimeoutMs": round(STREAM_TIMEOUT_SECONDS * 1000),
                 "supervisor": supervisor,
+                "camera": self.server.camera.status(),
                 **self.server.registry.status(),
             })
             return
         super().do_GET()
 
     def do_POST(self):
+        if self.path == "/api/camera/offer":
+            self.handle_camera_offer()
+            return
+        if self.path == "/api/camera/stop":
+            self.server.camera.stop_peer()
+            self.send_json(HTTPStatus.OK, {"ok": True, "camera": self.server.camera.status()})
+            return
         if self.path != "/api/samples":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
@@ -387,6 +400,37 @@ class QuestHandler(SimpleHTTPRequestHandler):
             **metrics,
         })
 
+    def handle_camera_offer(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": "invalid length"})
+            return
+        if length <= 0 or length > MAX_BODY_BYTES:
+            self.send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                           {"ok": False, "error": "invalid camera offer size"})
+            return
+        try:
+            payload = json.loads(self.rfile.read(length))
+            if not isinstance(payload, dict):
+                raise ValueError("expected a JSON object")
+            offer_sdp = validate_offer_sdp(payload.get("sdp"))
+            answer_sdp = self.server.camera.answer(offer_sdp)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"ok": False, "error": str(exc)})
+            return
+        except CameraUnavailable as exc:
+            self.send_json(HTTPStatus.SERVICE_UNAVAILABLE,
+                           {"ok": False, "error": str(exc),
+                            "camera": self.server.camera.status()})
+            return
+        self.send_json(HTTPStatus.OK, {
+            "ok": True,
+            "type": "answer",
+            "sdp": answer_sdp,
+            "camera": self.server.camera.status(),
+        })
+
     def log_message(self, fmt, *args):
         print(f"[{self.log_date_time_string()}] {self.address_string()} {fmt % args}")
 
@@ -395,6 +439,10 @@ def main():
     parser = argparse.ArgumentParser(description="Serve the G1 Quest WebXR probe over HTTPS")
     parser.add_argument("--port", type=int, default=8443)
     parser.add_argument("--ip", default=local_ip(), help="LAN IP included in the TLS certificate")
+    parser.add_argument("--camera-interface", default="eth0",
+                        help="interface carrying videohub_pc4 RTP multicast")
+    parser.add_argument("--no-camera", action="store_true",
+                        help="disable the passive RTP/WebRTC camera gateway")
     args = parser.parse_args()
 
     try:
@@ -410,6 +458,7 @@ def main():
     bind_address = args.ip
     server = ThreadingHTTPServer((bind_address, args.port), QuestHandler)
     server.registry = SessionRegistry()
+    server.camera = CameraGateway(args.camera_interface, enabled=not args.no_camera)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certfile=cert, keyfile=key)
     server.socket = context.wrap_socket(server.socket, server_side=True)
@@ -418,12 +467,15 @@ def main():
     print(f"Quest URL: https://{args.ip}:{args.port}")
     print(f"Listening only on: {bind_address}:{args.port}")
     print(f"Telemetry logs: {LOG_DIR}")
+    camera_status = server.camera.status()
+    print(f"Camera gateway: {camera_status}")
     print("Press Ctrl-C to stop.")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        server.camera.close()
         server.server_close()
 
 

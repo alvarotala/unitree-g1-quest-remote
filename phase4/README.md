@@ -68,7 +68,47 @@ incremento solo se visualizan; ninguna
 API de locomocion se invoca todavía. `Damp` y `ZeroTorque` necesitarán además
 una habilitación local específica porque pueden provocar la caída del G1.
 
-Antes de integrar la cámara se inspecciona PC2 sin iniciar streams:
+## Locomoción real desde VR
+
+La locomoción real está aislada en `g1_vr_locomotion`; ejecutar el servidor o
+el dry-run nunca la inicia. Compilarla en PC2 tampoco envía comandos:
+
+```bash
+./production/build_phase4_locomotion.sh
+```
+
+El binario exige habilitación local y la frase exacta `G1_VR_MOTION`. Antes de
+armar requiere tracking, LowState válido, ambos grips y los sticks centrados
+durante un segundo. Después renueva `SetVelocity(vx, vy, omega, 0.25)` cada
+100 ms. Al soltar un grip, perder tracking, vencer el stream, recibir una señal
+de salida o terminar el proceso llama `StopMove()`; la duración corta limita
+también un fallo abrupto del proceso.
+
+`StandUp` y `BalanceStand` requieren ambos triggers más A o B durante 1.5 s,
+con sticks centrados. `Damp` y `ZeroTorque` están bloqueados salvo que el proceso
+se inicie además con `--allow-fall-modes --authorize-fall-modes G1_CAN_FALL`;
+pueden hacer caer inmediatamente un robot sin soporte.
+
+El dry-run y el binario live no pueden ejecutarse juntos: ambos poseen
+`/tmp/g1_quest_safety.sock`. Detener uno antes de iniciar el otro. Cuando el
+live está activo, el panel VR muestra `LIVE LOCOMOTION · COMANDOS REALES`.
+
+Para operación sin sesión SSH abierta se usan los scripts administrados. Se
+ejecutan únicamente después de poner al G1 de pie en suelo plano, despejar el
+área y disponer de un observador junto al control Unitree:
+
+```bash
+./production/start_vr_live.sh --confirm-standing G1_STANDING_CLEAR
+./production/status_vr_live.sh
+./production/stop_vr_live.sh
+```
+
+El arranque deja WebXR y locomoción bajo `nohup`, guarda PID en `run/` y logs
+en `logs/services/`. Puede hacerse por SSH sobre Wi-Fi a `192.168.100.209`; el
+cable de la Mac no forma parte del control. La parada termina primero la
+locomoción para que ejecute `StopMove()` y después el servidor WebXR.
+
+La cámara frontal se inspeccionó primero sin iniciar streams:
 
 ```bash
 ./production/camera_probe.sh
@@ -76,11 +116,24 @@ Antes de integrar la cámara se inspecciona PC2 sin iniciar streams:
 
 La salida determina si el G1 expone V4L2 directamente o si ya existe un
 servicio de video. No se reutiliza la API Go2 sin evidencia de compatibilidad.
-Si `videohub_pc4` ya posee la cámara, su interfaz se inspecciona sin modificarla:
+`videohub_pc4` posee `/dev/video4`; su interfaz se inspecciona sin modificarla:
 
 ```bash
 ./production/video_hub_probe.sh
 ```
+
+El hub emite H.264 1280×720 a 15 FPS en RTP multicast
+`230.1.1.1:1720` por `eth0`. La recepción pasiva y las capacidades WebRTC se
+validan con:
+
+```bash
+./production/rtp_camera_probe.sh --duration 10
+./production/webrtc_capability_probe.sh
+```
+
+El gateway de `web/server.py` reutiliza ese H.264 sin transcodificar y sin
+abrir ningún dispositivo V4L2. El video se muestra tanto en la página 2D como
+en un panel dentro de VR.
 
 La suite inspecciona el fuente y falla si aparecen APIs de publisher, LowCmd o
 el topic de comandos. La publicación real requerirá otro ejecutable, otra
