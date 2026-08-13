@@ -24,7 +24,8 @@ let supervisorStatus = {
   wouldPublish:false, localEnable:false, questAgeMs:-1, lowstateAgeMs:-1
 };
 let liveInputs = {
-  head:false, leftTracked:false, rightTracked:false, leftGrip:false, rightGrip:false
+  head:false, leftTracked:false, rightTracked:false, leftGrip:false, rightGrip:false,
+  leftStick:[0,0], rightStick:[0,0]
 };
 
 const rounded = values => Array.from(values, n => Number(n.toFixed(4)));
@@ -159,7 +160,7 @@ class XRScene {
     const cards = [
       [56,"CONTROL IZQUIERDO",liveInputs.leftTracked?"TRACKING OK":"SIN TRACKING",liveInputs.leftGrip?"GRIP PRESIONADO":"GRIP SUELTO",liveInputs.leftTracked?"#78f0bd":"#ff6f6f"],
       [354,"CONTROL DERECHO",liveInputs.rightTracked?"TRACKING OK":"SIN TRACKING",liveInputs.rightGrip?"GRIP PRESIONADO":"GRIP SUELTO",liveInputs.rightTracked?"#78f0bd":"#ff6f6f"],
-      [652,"SUPERVISOR PC2",supervisorStatus.localEnable?"LOCAL ENABLE ON":"LOCAL ENABLE OFF",supervisorStatus.wouldPublish?"WOULD PUBLISH: SI":"WOULD PUBLISH: NO",stateColor]
+      [652,"SUPERVISOR PC2",supervisorStatus.modeIntent&&supervisorStatus.modeIntent!=="NONE"?`MODO: ${supervisorStatus.modeIntent}`:supervisorStatus.localEnable?"LOCAL ENABLE ON":"LOCAL ENABLE OFF",supervisorStatus.wouldPublish?"WOULD PUBLISH: SI":"WOULD PUBLISH: NO",stateColor]
     ];
     for (const [x,title,line1,line2,color] of cards) {
       ctx.fillStyle="#163238"; ctx.fillRect(x,245,270,180);
@@ -170,8 +171,9 @@ class XRScene {
     }
     const questAge=supervisorStatus.questAgeMs>=0 ? `${supervisorStatus.questAgeMs} ms` : "—";
     const lowAge=supervisorStatus.lowstateAgeMs>=0 ? `${supervisorStatus.lowstateAgeMs} ms` : "—";
+    const walk=Array.isArray(supervisorStatus.walkIntent)?supervisorStatus.walkIntent:[0,0,0];
     ctx.fillStyle="#9bb1ad"; ctx.font="22px system-ui";
-    ctx.fillText(`Quest ${questAge}  ·  LowState ${lowAge}  ·  ${rateWindow.length} Hz  ·  seq ${sequence}`,56,490);
+    ctx.fillText(`vx ${walk[0].toFixed(2)}  vy ${walk[1].toFixed(2)}  giro ${walk[2].toFixed(2)}  ·  Quest ${questAge}  ·  LowState ${lowAge}`,56,490);
     ctx.fillStyle=liveInputs.head?"#78f0bd":"#ff6f6f"; ctx.fillRect(56,535,10,10);
     ctx.fillStyle="#9bb1ad"; ctx.fillText(liveInputs.head?"HMD TRACKING OK":"HMD SIN TRACKING",80,550);
     ctx.fillStyle="#e8bd6b"; ctx.fillText("DRY-RUN · CERO COMANDOS DDS",600,550);
@@ -303,7 +305,8 @@ function onXRFrame(time,frame) {
   liveInputs={
     head:!!head,
     leftTracked:!!(left?.grip||left?.ray), rightTracked:!!(right?.grip||right?.ray),
-    leftGrip:pressed(left), rightGrip:pressed(right)
+    leftGrip:pressed(left), rightGrip:pressed(right),
+    leftStick:left?.axes?.slice(-2)||[0,0], rightStick:right?.axes?.slice(-2)||[0,0]
   };
   pending.push({sequence:sequence++,clientTime:performance.now(),head,left,right});
   if (pending.length>120) { pending.shift(); localDrops++; }

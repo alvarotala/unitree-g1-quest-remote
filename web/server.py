@@ -111,6 +111,24 @@ def grip_pressed(sample, side):
             isinstance(buttons[1], dict) and buttons[1].get("pressed") is True)
 
 
+def button_pressed(sample, side, index):
+    controller = sample.get(side)
+    buttons = controller.get("buttons") if isinstance(controller, dict) else None
+    return (isinstance(buttons, list) and len(buttons) > index and
+            isinstance(buttons[index], dict) and buttons[index].get("pressed") is True)
+
+
+def thumbstick(sample, side):
+    controller = sample.get(side)
+    axes = controller.get("axes") if isinstance(controller, dict) else None
+    if not isinstance(axes, list) or len(axes) < 2:
+        return 0.0, 0.0
+    x, y = axes[-2:]
+    if not finite_number(x) or not finite_number(y):
+        return 0.0, 0.0
+    return max(-1.0, min(1.0, float(x))), max(-1.0, min(1.0, float(y)))
+
+
 def safety_datagram(session, sample):
     tracking = (isinstance(sample.get("head"), dict) and
                 tracked_controller(sample, "left") and
@@ -118,9 +136,18 @@ def safety_datagram(session, sample):
     left_grip = grip_pressed(sample, "left")
     right_grip = grip_pressed(sample, "right")
     deadman = left_grip and right_grip
-    return (f"G1Q1 {session} {sample['sequence']} "
+    left_x, left_y = thumbstick(sample, "left")
+    right_x, right_y = thumbstick(sample, "right")
+    face = [button_pressed(sample, side, index)
+            for side, index in (("left", 4), ("left", 5),
+                                ("right", 4), ("right", 5))]
+    triggers = [button_pressed(sample, side, 0) for side in ("left", "right")]
+    return (f"G1Q2 {session} {sample['sequence']} "
             f"{int(tracking)} {int(deadman)} "
-            f"{int(left_grip)} {int(right_grip)}\n").encode("ascii")
+            f"{int(left_grip)} {int(right_grip)} "
+            f"{left_x:.4f} {left_y:.4f} {right_x:.4f} {right_y:.4f} "
+            f"{int(triggers[0])} {int(triggers[1])} "
+            f"{' '.join(str(int(value)) for value in face)}\n").encode("ascii")
 
 
 def send_safety_datagram(session, sample, socket_path=SAFETY_SOCKET_PATH):

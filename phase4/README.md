@@ -59,6 +59,29 @@ ninguna interfaz de red. Un datagrama con más de 250 ms desarma el supervisor.
 El dry-run devuelve su estado mediante un archivo local efímero; el panel VR
 muestra estado, motivo, grips individuales, tracking, edades y `WOULD_PUBLISH`.
 
+El dry-run de locomocion interpreta el stick izquierdo como avance/lateral y
+el stick derecho horizontal como giro, con zona muerta de 15% y limites
+iniciales de 0.15 m/s, 0.10 m/s y 0.25 rad/s. Ambos grips son el dead-man. Las
+intenciones de modo requieren ambos triggers: `X=Damp`, `Y=ZeroTorque`,
+`A=StandUp`, `B=BalanceStand` (botones 4/5 del perfil `xr-standard`). En este
+incremento solo se visualizan; ninguna
+API de locomocion se invoca todavía. `Damp` y `ZeroTorque` necesitarán además
+una habilitación local específica porque pueden provocar la caída del G1.
+
+Antes de integrar la cámara se inspecciona PC2 sin iniciar streams:
+
+```bash
+./production/camera_probe.sh
+```
+
+La salida determina si el G1 expone V4L2 directamente o si ya existe un
+servicio de video. No se reutiliza la API Go2 sin evidencia de compatibilidad.
+Si `videohub_pc4` ya posee la cámara, su interfaz se inspecciona sin modificarla:
+
+```bash
+./production/video_hub_probe.sh
+```
+
 La suite inspecciona el fuente y falla si aparecen APIs de publisher, LowCmd o
 el topic de comandos. La publicación real requerirá otro ejecutable, otra
 opción explícita y una prueba con el G1 correctamente soportado.

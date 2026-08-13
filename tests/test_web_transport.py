@@ -56,11 +56,27 @@ class PayloadTests(unittest.TestCase):
         for side in ("left", "right"):
             value[side]["buttons"] = [{"pressed": False}, {"pressed": True}]
         self.assertEqual(server.safety_datagram("session-1", value),
-                         b"G1Q1 session-1 7 1 1 1 1\n")
+                         b"G1Q2 session-1 7 1 1 1 1 0.0000 0.0000 0.0000 0.0000 0 0 0 0 0 0\n")
         value["right"] = json.loads(json.dumps(value["right"]))
         value["right"]["buttons"][1]["pressed"] = False
         self.assertEqual(server.safety_datagram("session-1", value),
-                         b"G1Q1 session-1 7 1 0 1 0\n")
+                         b"G1Q2 session-1 7 1 0 1 0 0.0000 0.0000 0.0000 0.0000 0 0 0 0 0 0\n")
+
+    def test_safety_datagram_carries_sticks_triggers_and_face_buttons(self):
+        value = sample(8, 11.0)
+        value["left"] = json.loads(json.dumps(value["left"]))
+        value["right"] = json.loads(json.dumps(value["right"]))
+        value["left"]["axes"] = [0, 0, 0.25, -0.5]
+        value["right"]["axes"] = [0, 0, -0.75, 1]
+        value["left"]["buttons"] = [
+            {"pressed": True}, {"pressed": True}, {"pressed": False},
+            {"pressed": False}, {"pressed": True}, {"pressed": False}]
+        value["right"]["buttons"] = [
+            {"pressed": False}, {"pressed": True}, {"pressed": False},
+            {"pressed": False}, {"pressed": False}, {"pressed": True}]
+        self.assertEqual(
+            server.safety_datagram("s", value),
+            b"G1Q2 s 8 1 1 1 1 0.2500 -0.5000 -0.7500 1.0000 1 0 1 0 0 1\n")
 
     def test_reads_only_fresh_complete_supervisor_status(self):
         value = {

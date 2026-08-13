@@ -86,8 +86,47 @@ struct QuestSignal {
   bool deadman = false;
   bool left_grip = false;
   bool right_grip = false;
+  double left_x = 0.0;
+  double left_y = 0.0;
+  double right_x = 0.0;
+  double right_y = 0.0;
+  bool left_trigger = false;
+  bool right_trigger = false;
+  bool button_x = false;
+  bool button_y = false;
+  bool button_a = false;
+  bool button_b = false;
   Clock::time_point received_at{};
 };
+
+double Deadzone(double value, double zone = 0.15) {
+  if (std::abs(value) <= zone) return 0.0;
+  return std::copysign((std::abs(value) - zone) / (1.0 - zone), value);
+}
+
+struct WalkIntent {
+  double vx = 0.0;
+  double vy = 0.0;
+  double omega = 0.0;
+};
+
+WalkIntent ComputeWalkIntent(const std::optional<QuestSignal>& quest) {
+  if (!quest || !quest->tracking || !quest->deadman) return {};
+  return {
+      -0.15 * Deadzone(quest->left_y),
+       0.10 * Deadzone(quest->left_x),
+      -0.25 * Deadzone(quest->right_x),
+  };
+}
+
+const char* ModeIntent(const std::optional<QuestSignal>& quest) {
+  if (!quest || !quest->left_trigger || !quest->right_trigger) return "NONE";
+  if (quest->button_x) return "DAMP";
+  if (quest->button_y) return "ZERO_TORQUE";
+  if (quest->button_a) return "STAND_UP";
+  if (quest->button_b) return "BALANCE_STAND";
+  return "NONE";
+}
 
 class QuestSocketReceiver {
  public:
@@ -120,18 +159,32 @@ class QuestSocketReceiver {
       std::string version, session, extra;
       unsigned long long sequence = 0;
       int tracking = -1, deadman = -1, left_grip = -1, right_grip = -1;
+      double left_x = 0.0, left_y = 0.0, right_x = 0.0, right_y = 0.0;
+      int left_trigger = -1, right_trigger = -1;
+      int button_x = -1, button_y = -1, button_a = -1, button_b = -1;
       std::istringstream stream(buffer);
       if (!(stream >> version >> session >> sequence >> tracking >> deadman >>
-            left_grip >> right_grip) ||
-          (stream >> extra) || version != "G1Q1" ||
+            left_grip >> right_grip >> left_x >> left_y >> right_x >> right_y >>
+            left_trigger >> right_trigger >> button_x >> button_y >> button_a >> button_b) ||
+          (stream >> extra) || version != "G1Q2" ||
           (tracking != 0 && tracking != 1) || (deadman != 0 && deadman != 1) ||
           (left_grip != 0 && left_grip != 1) ||
-          (right_grip != 0 && right_grip != 1))
+          (right_grip != 0 && right_grip != 1) ||
+          !std::isfinite(left_x) || !std::isfinite(left_y) ||
+          !std::isfinite(right_x) || !std::isfinite(right_y) ||
+          std::max({std::abs(left_x), std::abs(left_y),
+                    std::abs(right_x), std::abs(right_y)}) > 1.001 ||
+          std::min({left_trigger, right_trigger, button_x, button_y, button_a, button_b}) < 0 ||
+          std::max({left_trigger, right_trigger, button_x, button_y, button_a, button_b}) > 1)
         continue;
       if (latest_ && latest_->session == session && sequence <= latest_->sequence)
         continue;
       latest_ = QuestSignal{session, sequence, tracking == 1, deadman == 1,
-                            left_grip == 1, right_grip == 1, Clock::now()};
+                            left_grip == 1, right_grip == 1,
+                            left_x, left_y, right_x, right_y,
+                            left_trigger == 1, right_trigger == 1,
+                            button_x == 1, button_y == 1,
+                            button_a == 1, button_b == 1, Clock::now()};
     }
     return latest_;
   }
@@ -152,6 +205,7 @@ class SupervisorStatusFile {
              std::chrono::milliseconds quest_age,
              std::chrono::milliseconds lowstate_age) {
     const std::string temporary = path_ + "." + std::to_string(getpid());
+    const auto walk = ComputeWalkIntent(quest);
     std::ofstream output(temporary, std::ios::trunc);
     if (!output) return;
     output << "{\"state\":\"" << g1_quest::SafetyStateName(state)
@@ -162,6 +216,12 @@ class SupervisorStatusFile {
            << ",\"deadman\":" << (quest && quest->deadman ? "true" : "false")
            << ",\"leftGrip\":" << (quest && quest->left_grip ? "true" : "false")
            << ",\"rightGrip\":" << (quest && quest->right_grip ? "true" : "false")
+           << ",\"leftStick\":[" << (quest ? quest->left_x : 0.0) << ','
+           << (quest ? quest->left_y : 0.0) << ']'
+           << ",\"rightStick\":[" << (quest ? quest->right_x : 0.0) << ','
+           << (quest ? quest->right_y : 0.0) << ']'
+           << ",\"walkIntent\":[" << walk.vx << ',' << walk.vy << ',' << walk.omega << ']'
+           << ",\"modeIntent\":\"" << ModeIntent(quest) << '"'
            << ",\"questAgeMs\":" << (quest ? quest_age.count() : -1)
            << ",\"lowstateAgeMs\":" << lowstate_age.count() << "}\n";
     output.close();
@@ -285,12 +345,16 @@ int main(int argc, char** argv) {
         previous = state;
       }
       if (now >= next_print) {
+        const auto walk = ComputeWalkIntent(quest);
         std::cout << "LowState=" << latest->count << " edad=" << age.count()
                   << " ms | estado=" << g1_quest::SafetyStateName(state)
                   << " | WOULD_PUBLISH=" << (supervisor.command_enabled() ? "si" : "no")
                   << " | Quest=" << (quest ? quest->session : "-")
                   << " seq=" << (quest ? std::to_string(quest->sequence) : "-")
                   << " edad=" << (quest ? std::to_string(quest_age.count()) : "-") << " ms"
+                  << " | WALK_INTENT=" << std::fixed << std::setprecision(3)
+                  << walk.vx << ',' << walk.vy << ',' << walk.omega
+                  << " | MODE_INTENT=" << ModeIntent(quest)
                   << " | q brazos [rad]=" << std::fixed << std::setprecision(3);
         for (const double q : limiter.position()) std::cout << ' ' << q;
         std::cout << '\n';
