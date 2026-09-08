@@ -30,6 +30,12 @@ target_compile_definitions(g1_quest_locomotion_source_tests PRIVATE
 target_compile_options(g1_quest_locomotion_source_tests PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME g1_quest_locomotion_source_tests COMMAND g1_quest_locomotion_source_tests)
 
+add_executable(g1_loco_probe_source_tests tests/loco_probe_source_tests.cpp)
+target_compile_definitions(g1_loco_probe_source_tests PRIVATE
+  LOCO_PROBE_SOURCE="${CMAKE_CURRENT_SOURCE_DIR}/src/loco_probe_main.cpp")
+target_compile_options(g1_loco_probe_source_tests PRIVATE -Wall -Wextra -Wpedantic)
+add_test(NAME g1_loco_probe_source_tests COMMAND g1_loco_probe_source_tests)
+
 if(BUILD_UNITREE_DRY_RUN OR BUILD_UNITREE_LOCOMOTION)
   set(UNITREE_SDK_ROOT "/home/unitree/unitree_sdk2-g1"
       CACHE PATH "Existing Unitree SDK2 source directory on PC2")
@@ -60,6 +66,14 @@ if(BUILD_UNITREE_DRY_RUN OR BUILD_UNITREE_LOCOMOTION)
 endif()
 
 if(BUILD_UNITREE_LOCOMOTION)
+  add_executable(g1_loco_readonly_probe src/loco_probe_main.cpp)
+  target_include_directories(g1_loco_readonly_probe PRIVATE
+    ${UNITREE_SDK_ROOT}/include ${DDSCXX_INCLUDE_DIR}
+    /usr/local/include/iceoryx/v2.0.2)
+  target_link_libraries(g1_loco_readonly_probe PRIVATE
+    ${UNITREE_SDK_LIBRARY} ${DDSC_LIBRARY} ${DDSCXX_LIBRARY} rt Threads::Threads)
+  target_compile_options(g1_loco_readonly_probe PRIVATE -Wall -Wextra -Wpedantic)
+
   add_executable(g1_vr_locomotion src/locomotion_main.cpp)
   target_include_directories(g1_vr_locomotion PRIVATE
     ${UNITREE_SDK_ROOT}/include ${DDSCXX_INCLUDE_DIR}

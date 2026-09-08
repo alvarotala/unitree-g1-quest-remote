@@ -177,9 +177,12 @@ esta simulación no autoriza por sí mismo una prueba física.
 
 ## Fase 4: supervisor físico
 
-La primera lógica C++ de seguridad para la futura integración con `rt/arm_sdk`
-está documentada en [`phase4/README.md`](phase4/README.md). Por ahora no contiene
-ningún publisher y puede probarse sin conexión al robot.
+La lógica C++ de seguridad, el dry-run sin publishers y la locomoción explícita
+mediante `LocoClient` están documentados en
+[`phase4/README.md`](phase4/README.md). En software G1 1.5.3 el servicio live
+solo acepta velocidad después de verificar FSM `501`; la transición física
+experimental `Damp -> StandUp -> 501` está aislada en
+`production/enter_fsm501.sh` y requiere soporte físico del robot.
 
 ## Cámara frontal en Quest
 

@@ -63,9 +63,9 @@ El dry-run de locomocion interpreta el stick izquierdo como avance/lateral y
 el stick derecho horizontal como giro, con zona muerta de 15% y limites
 iniciales de 0.15 m/s, 0.10 m/s y 0.25 rad/s. Ambos grips son el dead-man. Las
 intenciones de modo requieren ambos triggers: `X=Damp`, `Y=ZeroTorque`,
-`A=StandUp`, `B=BalanceStand` (botones 4/5 del perfil `xr-standard`). En este
-incremento solo se visualizan; ninguna
-API de locomocion se invoca todavía. `Damp` y `ZeroTorque` necesitarán además
+`A=StandUp`, `B=BalanceStand` (botones 4/5 del perfil `xr-standard`). En el
+dry-run solo se visualizan y no se invoca ninguna API. `Damp` y `ZeroTorque`
+necesitan además
 una habilitación local específica porque pueden provocar la caída del G1.
 
 ## Locomoción real desde VR
@@ -107,6 +107,32 @@ El arranque deja WebXR y locomoción bajo `nohup`, guarda PID en `run/` y logs
 en `logs/services/`. Puede hacerse por SSH sobre Wi-Fi a `192.168.100.209`; el
 cable de la Mac no forma parte del control. La parada termina primero la
 locomoción para que ejecute `StopMove()` y después el servidor WebXR.
+
+### Entrada a locomoción en firmware 1.5.3
+
+En el G1 EDU+ 29 DOF probado, las versiones API cliente/servidor coinciden en
+`1.0.0.0`, pero la app deja el robot en FSM `802`. En software 1.5.3,
+`LocoClient.Start()` solicita FSM `500` y puede retornar éxito aunque el estado
+no cambie. La vía experimental verificada por la comunidad para llegar al
+control caminable es `Damp/FSM 1 -> StandUp/FSM 4 -> FSM 501`, comprobando el
+estado tras cada etapa y reintentando 501.
+
+La transición se mantiene separada del servicio background porque `Damp` puede
+hacer caer el robot. Para la primera prueba, poner el control oficial en modo
+movimiento (`R2+A`, no el modo debug `L2+R2`), sujetar físicamente el G1 con
+gantry/soporte, disponer de observador y parada de emergencia, y ejecutar en
+foreground:
+
+```bash
+./production/enter_fsm501.sh G1_SUPPORTED_CLEAR
+./build/phase4/g1_loco_readonly_probe --interface eth0
+```
+
+La prueba no envía velocidad: termina con `StopMove()` y debe imprimir
+`CONFIRMADO: FSM 501 activo`. Solo después, y mientras el probe siga mostrando
+`GetFsmId ... value=501`, se puede iniciar `start_vr_live.sh`. El servicio live
+no ejecuta la transición física y se bloquea ante cualquier FSM distinto de
+501.
 
 La cámara frontal se inspeccionó primero sin iniciar streams:
 

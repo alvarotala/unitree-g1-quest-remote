@@ -17,4 +17,5 @@ cmake --build "${build_dir}" -j2
 )
 
 echo "LIVE locomotion listo: ${build_dir}/g1_vr_locomotion"
+echo "Probe read-only listo: ${build_dir}/g1_loco_readonly_probe"
 echo "No se ejecutó el binario y no se enviaron comandos al robot."

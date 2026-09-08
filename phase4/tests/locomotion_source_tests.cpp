@@ -10,7 +10,11 @@ int main() {
     const std::string source((std::istreambuf_iterator<char>(input)), {});
     for (const char* required : {"G1_VR_MOTION", "--local-enable", "StopMove()",
                                  "SetVelocity", "kVelocityDurationSeconds",
-                                 "G1_CAN_FALL", "kModeHold"})
+                                 "G1_CAN_FALL", "kModeHold", "G1_DAMP_STAND_501",
+                                 "client.Damp()", "client.StandUp()",
+                                 "client.SetFsmId(kWalkFsmId)",
+                                 "initial_fsm != kWalkFsmId", "LIVE BLOQUEADO",
+                                 "kFsm501Attempts = 12"})
       if (source.find(required) == std::string::npos)
         throw std::runtime_error(std::string("falta barrera: ") + required);
     for (const char* forbidden : {"864000", "ChannelPublisher", "rt/arm_sdk"})

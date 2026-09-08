@@ -39,6 +39,9 @@ constexpr auto kQuestTimeout = std::chrono::milliseconds(250);
 constexpr auto kModeHold = std::chrono::milliseconds(1500);
 constexpr auto kVelocityPeriod = std::chrono::milliseconds(100);
 constexpr float kVelocityDurationSeconds = 0.25f;
+constexpr int kWalkFsmId = 501;
+constexpr int kAppFsmId = 802;
+constexpr int kFsm501Attempts = 12;
 std::atomic<bool> g_stop{false};
 void HandleSignal(int) { g_stop.store(true); }
 
@@ -47,6 +50,8 @@ struct Options {
   double duration_s = 60.0;
   bool local_enable = false;
   bool authorize_motion = false;
+  bool authorize_fsm_transition = false;
+  bool fsm_transition_only = false;
   bool allow_fall_modes = false;
   std::string quest_socket = "/tmp/g1_quest_safety.sock";
 };
@@ -55,6 +60,7 @@ void Help(const char* program) {
   std::cout
       << "Uso: " << program << " --interface IFACE --local-enable\n"
       << "  --authorize-motion G1_VR_MOTION [--duration S]\n"
+      << "  [--fsm-transition-only --authorize-fsm-transition G1_DAMP_STAND_501]\n"
       << "  [--allow-fall-modes --authorize-fall-modes G1_CAN_FALL]\n"
       << "PUBLICA comandos oficiales LocoClient. Robot soportado y area libre.\n";
 }
@@ -66,9 +72,13 @@ Options Parse(int argc, char** argv) {
     const std::string arg = argv[i];
     if (arg == "-h" || arg == "--help") { Help(argv[0]); std::exit(0); }
     if (arg == "--local-enable") { options.local_enable = true; continue; }
+    if (arg == "--fsm-transition-only") {
+      options.fsm_transition_only = true; continue;
+    }
     if (arg == "--allow-fall-modes") { options.allow_fall_modes = true; continue; }
     if (arg != "--interface" && arg != "--duration" &&
         arg != "--quest-socket" && arg != "--authorize-motion" &&
+        arg != "--authorize-fsm-transition" &&
         arg != "--authorize-fall-modes")
       throw std::invalid_argument("opcion desconocida: " + arg);
     if (++i >= argc) throw std::invalid_argument("falta valor para " + arg);
@@ -78,6 +88,8 @@ Options Parse(int argc, char** argv) {
     else if (arg == "--quest-socket") options.quest_socket = value;
     else if (arg == "--authorize-motion")
       options.authorize_motion = value == "G1_VR_MOTION";
+    else if (arg == "--authorize-fsm-transition")
+      options.authorize_fsm_transition = value == "G1_DAMP_STAND_501";
     else fall_phrase = value == "G1_CAN_FALL";
   }
   if (options.interface.empty()) throw std::invalid_argument("--interface es obligatoria");
@@ -87,6 +99,10 @@ Options Parse(int argc, char** argv) {
   if (options.allow_fall_modes && !fall_phrase)
     throw std::invalid_argument(
         "--allow-fall-modes requiere --authorize-fall-modes G1_CAN_FALL");
+  if (options.fsm_transition_only && !options.authorize_fsm_transition)
+    throw std::invalid_argument(
+        "--fsm-transition-only requiere --authorize-fsm-transition "
+        "G1_DAMP_STAND_501");
   if (!std::isfinite(options.duration_s) || options.duration_s <= 0.0)
     throw std::invalid_argument("--duration debe ser positivo");
   return options;
@@ -269,6 +285,53 @@ class StopOnExit {
   unitree::robot::g1::LocoClient& client_;
   bool& commanded_;
 };
+
+void RequireApiSuccess(int result, const std::string& operation) {
+  if (result != 0)
+    throw std::runtime_error(operation + " fallo: " + std::to_string(result));
+}
+
+int ReadFsm(unitree::robot::g1::LocoClient& client, const char* stage) {
+  int fsm = -1;
+  const int result = client.GetFsmId(fsm);
+  std::cout << "FSM " << stage << '=' << fsm
+            << " | GetFsmId resultado=" << result << '\n';
+  RequireApiSuccess(result, std::string("GetFsmId (") + stage + ')');
+  return fsm;
+}
+
+void EnterFsm501(unitree::robot::g1::LocoClient& client, int initial_fsm) {
+  if (initial_fsm == kWalkFsmId) {
+    std::cout << "FSM 501 ya estaba activo; no se ejecuta Damp/StandUp.\n";
+    return;
+  }
+  if (initial_fsm != kAppFsmId)
+    throw std::runtime_error(
+        "transicion 1->4->501 rechazada: se esperaba FSM 802 o 501");
+
+  std::cout << "TRANSICION FISICA: Damp (FSM 1)\n" << std::flush;
+  RequireApiSuccess(client.Damp(), "Damp/FSM 1");
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  ReadFsm(client, "despues de Damp");
+
+  std::cout << "TRANSICION FISICA: StandUp (FSM 4)\n" << std::flush;
+  RequireApiSuccess(client.StandUp(), "StandUp/FSM 4");
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  ReadFsm(client, "despues de StandUp");
+
+  for (int attempt = 1; attempt <= kFsm501Attempts; ++attempt) {
+    const int set_result = client.SetFsmId(kWalkFsmId);
+    std::cout << "SetFsmId(501) intento " << attempt << '/' << kFsm501Attempts
+              << " | resultado=" << set_result << '\n' << std::flush;
+    RequireApiSuccess(set_result, "SetFsmId(501)");
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+    if (ReadFsm(client, "verificacion 501") == kWalkFsmId) {
+      std::cout << "CONFIRMADO: FSM 501 activo.\n";
+      return;
+    }
+  }
+  throw std::runtime_error("FSM 501 no fue confirmado despues de 12 intentos");
+}
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -289,13 +352,31 @@ int main(int argc, char** argv) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     if (!low_receiver.Latest()) throw std::runtime_error("no llego LowState");
 
-    unitree::robot::g1::LocoClient client; client.Init(); client.SetTimeout(0.5f);
+    unitree::robot::g1::LocoClient client; client.Init();
+    client.SetTimeout(options.fsm_transition_only ? 1.0f : 0.5f);
     StopOnExit stop_on_exit(client, ever_commanded);
+    const int initial_fsm = ReadFsm(client, "inicial");
+    if (options.fsm_transition_only) {
+      ever_commanded = true;
+      EnterFsm501(client, initial_fsm);
+      const int result = client.StopMove();
+      std::cout << "PRUEBA SIN DESPLAZAMIENTO: StopMove resultado=" << result << '\n';
+      RequireApiSuccess(result, "StopMove final de transicion");
+      ever_commanded = false;
+      std::cout << "Transicion terminada. Verifique GetFsmId=501 antes de iniciar VR.\n";
+      return 0;
+    }
+    if (initial_fsm != kWalkFsmId)
+      throw std::runtime_error(
+          "LIVE BLOQUEADO: se requiere FSM 501 verificado; ejecute primero "
+          "production/enter_fsm501.sh con el robot fisicamente soportado");
     g1_quest::SafetySupervisor supervisor;
     StatusFile status_file;
     bool neutral_latched = false;
     auto previous = supervisor.state();
     auto started = Clock::now(), next_velocity = started, next_status = started;
+    auto next_command_log = started;
+    std::array<float, 3> last_logged_velocity{};
     std::string held_mode = "NONE", executed_mode = "NONE";
     auto mode_since = started;
     int last_result = 0;
@@ -338,6 +419,19 @@ int main(int argc, char** argv) {
                                          kVelocityDurationSeconds);
         ever_commanded = true;
         next_velocity = now + kVelocityPeriod;
+        const bool velocity_changed =
+            std::abs(velocity[0] - last_logged_velocity[0]) > 0.005f ||
+            std::abs(velocity[1] - last_logged_velocity[1]) > 0.005f ||
+            std::abs(velocity[2] - last_logged_velocity[2]) > 0.005f;
+        if (velocity_changed || now >= next_command_log) {
+          std::cout << "SetVelocity vx=" << std::fixed << std::setprecision(3)
+                    << velocity[0] << " vy=" << velocity[1]
+                    << " omega=" << velocity[2]
+                    << " duration=" << kVelocityDurationSeconds
+                    << " | resultado=" << last_result << '\n';
+          last_logged_velocity = velocity;
+          next_command_log = now + std::chrono::seconds(1);
+        }
         if (last_result != 0) throw std::runtime_error("SetVelocity fallo: " + std::to_string(last_result));
       }
 

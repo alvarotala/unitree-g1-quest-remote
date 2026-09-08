@@ -47,6 +47,29 @@ def input_active(sample, name):
     return button_active, axis_active
 
 
+def controller_button(sample, name, index):
+    controller = sample.get(name)
+    buttons = controller.get("buttons") if isinstance(controller, dict) else None
+    if not isinstance(buttons, list) or len(buttons) <= index or not isinstance(buttons[index], dict):
+        return False, 0.0
+    button = buttons[index]
+    value = button.get("value")
+    value = float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+    return button.get("pressed") is True, value
+
+
+def controller_stick(sample, name):
+    controller = sample.get(name)
+    axes = controller.get("axes") if isinstance(controller, dict) else None
+    if not isinstance(axes, list) or len(axes) < 2:
+        return 0.0, 0.0
+    x, y = axes[-2:]
+    if not all(isinstance(value, (int, float)) and not isinstance(value, bool)
+               and math.isfinite(value) for value in (x, y)):
+        return 0.0, 0.0
+    return float(x), float(y)
+
+
 def analyze(path):
     records = []
     with path.open(encoding="utf-8") as handle:
@@ -114,6 +137,34 @@ def analyze(path):
             "axisActiveSamples": sum(axis for _, axis in activity),
         }
 
+    grip_diagnostic = {}
+    for name in ("left", "right"):
+        states = [controller_button(sample, name, 1) for sample in samples]
+        stick_values = [controller_stick(sample, name) for sample in samples]
+        pressed_samples = sum(pressed for pressed, _ in states)
+        transitions_to_released = sum(
+            previous[0] and not current[0] for previous, current in zip(states, states[1:]))
+        active_indices = [index for index, (x, y) in enumerate(stick_values)
+                          if max(abs(x), abs(y)) > 0.15]
+        released_while_stick = sum(not states[index][0] for index in active_indices)
+        analog_while_stick = [states[index][1] for index in active_indices]
+        grip_diagnostic[name] = {
+            "pressedPercent": round(100 * pressed_samples / len(samples), 3) if samples else 0.0,
+            "releaseTransitions": transitions_to_released,
+            "stickActiveSamples": len(active_indices),
+            "releasedWhileStickActive": released_while_stick,
+            "analogMinWhileStickActive": round(min(analog_while_stick), 4) if analog_while_stick else None,
+            "analogMaxWhileStickActive": round(max(analog_while_stick), 4) if analog_while_stick else None,
+        }
+
+    both_grips = []
+    for sample in samples:
+        left_pressed, _ = controller_button(sample, "left", 1)
+        right_pressed, _ = controller_button(sample, "right", 1)
+        both_grips.append(left_pressed and right_pressed)
+    deadman_release_transitions = sum(
+        previous and not current for previous, current in zip(both_grips, both_grips[1:]))
+
     return {
         "file": str(path),
         "sessionId": records[0].get("sessionId") if records else None,
@@ -136,6 +187,8 @@ def analyze(path):
         "outOfOrder": out_of_order,
         "trackingValidPercent": validity,
         "inputActivity": input_activity,
+        "gripDiagnostic": grip_diagnostic,
+        "deadmanReleaseTransitions": deadman_release_transitions,
     }
 
 
@@ -184,6 +237,15 @@ def print_human(result, failures=None):
     print("Input activity: left buttons {} / axes {} | right buttons {} / axes {}".format(
         activity["left"]["buttonActiveSamples"], activity["left"]["axisActiveSamples"],
         activity["right"]["buttonActiveSamples"], activity["right"]["axisActiveSamples"]))
+    grips = result["gripDiagnostic"]
+    for name in ("left", "right"):
+        value = grips[name]
+        print("Grip {}: pressed {:.3f}% | releases {} | stick active {} | "
+              "released during stick {} | analog range during stick {}..{}".format(
+                  name, value["pressedPercent"], value["releaseTransitions"],
+                  value["stickActiveSamples"], value["releasedWhileStickActive"],
+                  value["analogMinWhileStickActive"], value["analogMaxWhileStickActive"]))
+    print("Dead-man release transitions: {}".format(result["deadmanReleaseTransitions"]))
     if failures is not None:
         if failures:
             print("Acceptance: FAIL — {}".format("; ".join(failures)))

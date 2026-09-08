@@ -177,6 +177,8 @@ class AnalyzerTests(unittest.TestCase):
         self.assertEqual(result["inputActivity"]["left"]["axisActiveSamples"], 2)
         self.assertEqual(result["intervalMaxMs"], 11)
         self.assertEqual(result["stallsOver25Ms"], 0)
+        self.assertIn("gripDiagnostic", result)
+        self.assertEqual(result["deadmanReleaseTransitions"], 0)
 
 if __name__ == "__main__":
     unittest.main()
